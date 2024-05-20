@@ -14,6 +14,8 @@ struct Entity {
   std::size_t id = 0;
   std::size_t arch = 0;
   std::size_t index = 0;
+
+  auto operator==(const Entity &other) const -> bool;
 };
 
 template <typename T>
@@ -109,7 +111,7 @@ struct ArchetypeStorage {
     auto it = std::ranges::find_if(old_arch.component_ids, [=](std::size_t id) {
       return id > component_id;
     });
-    auto insert_index = std::distance(old_arch.component_ids.begin(), it);
+    auto insert_index = static_cast<std::size_t>(std::distance(old_arch.component_ids.begin(), it));
 
     // copy old component
     for (auto i = std::size_t{}; i < insert_index; ++i) {

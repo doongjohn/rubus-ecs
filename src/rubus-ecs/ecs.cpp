@@ -4,6 +4,10 @@
 
 namespace ruecs {
 
+auto Entity::operator==(const Entity &other) const -> bool {
+  return this->id == other.id && this->arch == other.arch && this->index == other.index;
+}
+
 System::System(const std::vector<std::size_t> &query, const std::function<void(Entity entity, Archetype &arch)> &fn)
     : query{query}, fn{fn} {
   std::ranges::sort(this->query, std::ranges::less());
