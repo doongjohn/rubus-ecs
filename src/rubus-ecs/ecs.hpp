@@ -7,8 +7,6 @@
 #include <span>
 #include <vector>
 #include <unordered_map>
-#include <format>
-#include <iostream>
 
 namespace ruecs {
 
@@ -154,3 +152,12 @@ struct ArchetypeStorage {
 };
 
 } // namespace ruecs
+
+namespace std {
+template <>
+struct hash<ruecs::Entity> {
+  inline auto operator()(const ruecs::Entity &e) const -> size_t {
+    return hash<std::size_t>{}(e.id);
+  }
+};
+} // namespace std
