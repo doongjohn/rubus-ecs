@@ -47,6 +47,7 @@ struct ComponentArray {
   auto set_at(std::size_t index, std::span<uint8_t> value) -> void;
   auto push_back(std::span<uint8_t> value) -> void;
   auto remove_at(std::size_t index) -> void;
+  auto delete_at(std::size_t index) -> void;
 };
 
 struct ComponentInfo {

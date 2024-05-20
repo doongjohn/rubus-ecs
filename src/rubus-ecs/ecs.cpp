@@ -47,12 +47,18 @@ auto ComponentArray::push_back(std::span<uint8_t> value) -> void {
 auto ComponentArray::remove_at(std::size_t index) -> void {
   assert(index < count);
 
-  fn_deinit({array.data() + index * each_size, each_size});
   if (index < count - 1) {
     set_at(index, get_at(count - 1));
   }
   array.pop_back();
   count -= 1;
+}
+
+auto ComponentArray::delete_at(std::size_t index) -> void {
+  assert(index < count);
+
+  fn_deinit({array.data() + index * each_size, each_size});
+  remove_at(index);
 }
 
 auto ComponentInfo::operator<=>(const ComponentInfo &other) const -> std::strong_ordering {
