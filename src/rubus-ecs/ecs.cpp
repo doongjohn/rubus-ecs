@@ -137,6 +137,7 @@ auto Archetype::remove_entity(Entity entity) -> void {
 }
 
 ArchetypeStorage::ArchetypeStorage() {
+  archetypes = {};
   archetypes.emplace(0, Archetype{0});
 }
 
