@@ -1,64 +1,56 @@
 #include "ecs.hpp"
 
-#include <algorithm>
-
 namespace ruecs {
 
-auto Entity::operator==(const Entity &other) const -> bool {
-  return this->id == other.id && this->arch == other.arch && this->index == other.index;
-}
+std::size_t Entity::cur_id = 0;
 
-System::System(const std::vector<std::size_t> &query, const std::function<void(Entity entity, Archetype &arch)> &fn)
-    : query{query}, fn{fn} {
-  std::ranges::sort(this->query, std::ranges::less());
-}
+System::System(const std::vector<std::size_t> &query, const SystemFn &&fn) : query{query}, fn{fn} {}
 
-ComponentArray::ComponentArray(std::size_t id, std::size_t each_size, std::function<void(std::span<uint8_t>)> fn_deinit)
-    : id{id}, each_size{each_size}, fn_deinit{std::move(fn_deinit)} {}
+ComponentArray::ComponentArray(std::size_t id, std::size_t each_size, void (*destructor)(void *))
+    : id{id}, each_size{each_size}, destructor{destructor} {}
 
 ComponentArray::~ComponentArray() {
   for (auto i = std::size_t{}; i < count; ++i) {
-    fn_deinit({array.data() + i * each_size, each_size});
+    destructor(array.data() + i * each_size);
   }
 }
 
-auto ComponentArray::get_at(std::size_t index) -> std::span<uint8_t> {
-  if (index >= count) {
+auto ComponentArray::get_last() -> std::span<uint8_t> {
+  if (count == 0) {
     return {};
   }
+  return {array.data() + (count - 1) * each_size, each_size};
+}
+
+auto ComponentArray::get_at(std::size_t index) -> std::span<uint8_t> {
+  assert(index < count);
+
   auto byte_index = index * each_size;
   return {array.data() + byte_index, each_size};
 }
 
 auto ComponentArray::set_at(std::size_t index, std::span<uint8_t> value) -> void {
-  if (index >= count) {
-    return;
-  }
+  assert(index < count);
+
   auto byte_index = index * each_size;
   std::memcpy(array.data() + byte_index, value.data(), each_size);
 }
 
-auto ComponentArray::push_back(std::span<uint8_t> value) -> void {
-  array.resize(array.size() + each_size);
-  count += 1;
-  set_at(count - 1, value);
-}
-
-auto ComponentArray::remove_at(std::size_t index) -> void {
+auto ComponentArray::take_out_at(std::size_t index) -> void {
   assert(index < count);
 
-  if (index < count - 1) {
-    set_at(index, get_at(count - 1));
-  }
-  array.pop_back();
   count -= 1;
+  if (index < count) {
+    set_at(index, get_at(count));
+  }
+  array.resize(array.size() - each_size);
 }
 
 auto ComponentArray::delete_at(std::size_t index) -> void {
   assert(index < count);
 
-  fn_deinit({array.data() + index * each_size, each_size});
-  remove_at(index);
+  destructor(array.data() + index * each_size);
+  take_out_at(index);
 }
 
 auto ComponentInfo::operator<=>(const ComponentInfo &other) const -> std::strong_ordering {
@@ -68,24 +60,26 @@ auto ComponentInfo::operator<=>(const ComponentInfo &other) const -> std::strong
 Archetype::Archetype(std::size_t id) : id{id} {}
 
 Archetype::Archetype(std::size_t id, const ComponentInfo &info) : id{id} {
-  component_ids = std::vector<std::size_t>(1);
-  components = std::vector<ComponentArray>(1);
+  component_ids.resize(1);
   component_ids[0] = info.id;
+
+  components.resize(1);
   components[0].id = info.id;
   components[0].each_size = info.size;
-  components[0].fn_deinit = info.fn_deinit;
+  components[0].destructor = info.destructor;
 }
 
 Archetype::Archetype(std::size_t id, std::span<ComponentInfo> infos) : id{id} {
-  component_ids = std::vector<std::size_t>(infos.size());
-  components = std::vector<ComponentArray>(infos.size());
+  component_ids.resize(infos.size());
   for (auto i = std::size_t{}; i < infos.size(); ++i) {
     component_ids[i] = infos[i].id;
   }
+
+  components.resize(infos.size());
   for (auto i = std::size_t{}; i < infos.size(); ++i) {
     components[i].id = infos[i].id;
     components[i].each_size = infos[i].size;
-    components[i].fn_deinit = infos[i].fn_deinit;
+    components[i].destructor = infos[i].destructor;
   }
 }
 
@@ -94,45 +88,78 @@ auto Archetype::has_component(std::size_t component_id) -> bool {
 }
 
 auto Archetype::has_components(std::span<const std::size_t> component_ids) -> bool {
+  const auto &A = this->component_ids;
+  const auto &B = component_ids;
+
   auto i = std::size_t{};
-  for (auto &component_array : components) {
-    if (component_array.id == component_ids[i]) {
-      i += 1;
-      if (i == component_ids.size()) {
-        return true;
-      }
+  auto j = std::size_t{};
+
+  while (i < A.size() && j < B.size()) {
+    if (A[i] == B[j]) {
+      ++i;
+      ++j;
+    } else if (A[i] < B[j]) {
+      ++i;
+    } else {
+      return false;
     }
   }
-  return false;
+
+  return j == B.size();
 }
 
-auto Archetype::get_component_array_of(std::size_t component_id) -> ComponentArray & {
+auto Archetype::get_component_array(std::size_t component_id) -> ComponentArray & {
   auto it = std::ranges::find(component_ids, component_id);
   assert(it != component_ids.end());
-
-  auto index = it - component_ids.begin();
-  return components[index];
+  return components[it - component_ids.begin()];
 }
 
-auto Archetype::add_entity(Entity &entity, std::span<std::span<uint8_t>> components) -> void {
-  entity.arch = id;
+auto Archetype::new_entity_uninitialized() -> Entity {
+  auto entity = Entity{.id = ++Entity::cur_id, .arch_id = id, .index = entities.size()};
+  entities.push_back(entity);
+
+  for (auto &component_array : components) {
+    component_array.count += 1;
+    component_array.array.resize(component_array.array.size() + component_array.each_size);
+  }
+
+  return entity;
+}
+
+auto Archetype::add_entity_uninitialized(Entity entity) -> Entity {
+  entity.arch_id = id;
   entity.index = entities.size();
   entities.push_back(entity);
 
-  for (auto i = std::size_t{}; i < this->components.size(); ++i) {
-    this->components[i].push_back(components[i]);
+  for (auto &component_array : components) {
+    component_array.count += 1;
+    component_array.array.resize(component_array.array.size() + component_array.each_size);
   }
+
+  return entity;
 }
 
-auto Archetype::remove_entity(Entity entity) -> void {
-  assert(entity.arch == id);
+auto Archetype::take_out_entity(Entity entity) -> void {
+  assert(entity.arch_id == id);
   assert(entity.index < entities.size());
 
   entities[entity.index] = entities.back();
   entities.pop_back();
 
   for (auto &component_array : components) {
-    component_array.remove_at(entity.index);
+    component_array.take_out_at(entity.index);
+  }
+}
+
+auto Archetype::delete_entity(Entity entity) -> void {
+  assert(entity.arch_id == id);
+  assert(entity.index < entities.size());
+
+  entities[entity.index] = entities.back();
+  entities.pop_back();
+
+  for (auto &component_array : components) {
+    component_array.delete_at(entity.index);
   }
 }
 
@@ -154,25 +181,18 @@ auto ArchetypeStorage::hash_components(std::span<ComponentInfo> const &s) -> std
 }
 
 auto ArchetypeStorage::new_entity() -> Entity {
-  static auto id = std::size_t{};
-  auto entity = Entity{
-    .id = ++id,
-    .arch = 0,
-    .index = 0,
-  };
-  archetypes.at(0).add_entity(entity, {});
-  return entity;
+  return archetypes.at(0).new_entity_uninitialized();
 }
 
 auto ArchetypeStorage::delete_entity(Entity entity) -> void {
-  archetypes.at(entity.arch).remove_entity(entity);
+  archetypes.at(entity.arch_id).delete_entity(entity);
 }
 
-auto ArchetypeStorage::run_system(const System &system) -> void {
-  for (auto &[_, arch] : archetypes) {
+auto ArchetypeStorage::run_system(const System &system, void *ptr) -> void {
+  for (auto &[_, arch] : archetypes) { // TODO: use somthing better than `unorderd_map` for faster iteration
     if (arch.has_components(system.query)) {
       for (auto entity : arch.entities) {
-        system.fn(entity, arch);
+        system.fn(entity, arch, ptr);
       }
     }
   }
