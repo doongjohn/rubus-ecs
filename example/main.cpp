@@ -20,18 +20,18 @@ struct Player {
 };
 
 auto main() -> int {
-  auto archstore = ruecs::ArchetypeStorage{};
+  auto arch_storage = ruecs::ArchetypeStorage{};
 
   std::cout << "creating entities\n";
   for (auto i = 1; i <= 4; ++i) {
-    auto entity = archstore.new_entity();
-    archstore.add_component<Position>(entity, 10.f, 20.f);
-    archstore.add_component<Velocity>(entity, 1.f, 1.f);
+    auto entity = arch_storage.new_entity();
+    arch_storage.add_component<Position>(entity, 10.f, 20.f);
+    arch_storage.add_component<Velocity>(entity, 1.f, 1.f);
     if (i % 3 == 0) {
-      archstore.remove_component<Velocity>(entity);
+      arch_storage.remove_component<Velocity>(entity);
     }
     if (i % 2 == 0) {
-      archstore.add_component<Player>(entity, "player");
+      arch_storage.add_component<Player>(entity, "player");
     }
   }
 
@@ -62,7 +62,7 @@ auto main() -> int {
   std::cout << "running systems\n";
   auto start = std::chrono::high_resolution_clock::now();
   for (const auto &system : systems) {
-    archstore.run_system(system);
+    arch_storage.run_system(system);
   }
   auto end = std::chrono::high_resolution_clock::now();
   std::cout << "done\n";
