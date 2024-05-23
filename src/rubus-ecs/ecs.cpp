@@ -14,17 +14,15 @@ auto ComponentArray::delete_all() -> void {
 }
 
 [[nodiscard]] auto ComponentArray::get_last() -> std::span<uint8_t> {
-  if (count == 0) {
-    return {};
-  }
+  assert(count != 0);
+
   return {array.data() + (count - 1) * each_size, each_size};
 }
 
 [[nodiscard]] auto ComponentArray::get_at(std::size_t index) -> std::span<uint8_t> {
   assert(index < count);
 
-  auto byte_index = index * each_size;
-  return {array.data() + byte_index, each_size};
+  return {array.data() + index * each_size, each_size};
 }
 
 auto ComponentArray::set_at(std::size_t index, std::span<uint8_t> value) -> void {
