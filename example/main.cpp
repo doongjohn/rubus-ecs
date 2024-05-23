@@ -5,6 +5,11 @@
 
 #include <rubus-ecs/ecs.hpp>
 
+// TODO
+// - modify (add/remove component, new/delete entity) after iteration
+// - query without
+// - archetype cache
+
 struct Position {
   float x = 0;
   float y = 0;
