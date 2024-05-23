@@ -219,7 +219,7 @@ struct Query {
   std::unordered_map<std::size_t, Archetype>::iterator it;
   std::size_t index = 0;
 
-  Query(ArchetypeStorage *arch_storage);
+  explicit Query(ArchetypeStorage *arch_storage);
 
   template <typename... T>
   auto with() -> Query {
