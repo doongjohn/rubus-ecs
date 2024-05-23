@@ -193,9 +193,9 @@ struct ArchetypeStorage {
     for (auto i = std::size_t{}, x = std::size_t{}; i < new_arch.components.size(); ++i) {
       auto ptr = new_arch.components[i].get_last().data();
       if (i == remove_index) {
+        x = 1;
         // delete removed component
         old_arch.components[i].destructor(old_arch.components[i].get_at(entity.index).data());
-        x = 1;
       } else {
         // copy components
         std::memcpy(ptr, old_arch.components[i + x].get_at(entity.index).data(), old_arch.components[i + x].each_size);
