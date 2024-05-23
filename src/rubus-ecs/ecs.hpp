@@ -4,6 +4,7 @@
 #include <cassert>
 #include <typeinfo>
 #include <functional>
+#include <tuple>
 #include <span>
 #include <vector>
 #include <unordered_map>
@@ -12,37 +13,13 @@
 namespace ruecs {
 
 struct Entity {
+  inline static std::size_t cur_id = 0;
+
   std::size_t id = 0;
   std::size_t arch_id = 0;
   std::size_t index = 0;
 
-  static std::size_t cur_id;
-
   auto operator==(const Entity &other) const -> bool = default;
-};
-
-struct Query {
-  std::vector<std::size_t> component_ids;
-
-  template <typename... Components>
-  inline static auto with_components() -> Query {
-    auto result = Query{{typeid(Components).hash_code()...}};
-    std::ranges::sort(result.component_ids, std::ranges::less());
-    return result;
-  }
-};
-
-struct Archetype;
-struct ArchetypeStorage;
-
-// using SystemFn = void (*)(Archetype &arch, Entity entity, void *ptr);
-using SystemFn = std::function<void(Archetype &arch, Entity entity, double delta_time, void *ptr)>;
-
-struct System {
-  Query query;
-  SystemFn fn;
-
-  System(Query query, SystemFn fn);
 };
 
 struct ComponentInfo {
@@ -65,7 +42,7 @@ struct ComponentArray {
 
   auto delete_all() -> void;
 
-  inline auto to_component_info() -> ComponentInfo {
+  [[nodiscard]] inline auto to_component_info() -> ComponentInfo {
     return {
       .id = id,
       .size = each_size,
@@ -73,8 +50,8 @@ struct ComponentArray {
     };
   }
 
-  auto get_last() -> std::span<uint8_t>;
-  auto get_at(std::size_t index) -> std::span<uint8_t>;
+  [[nodiscard]] auto get_last() -> std::span<uint8_t>;
+  [[nodiscard]] auto get_at(std::size_t index) -> std::span<uint8_t>;
   auto set_at(std::size_t index, std::span<uint8_t> value) -> void;
 
   auto take_out_at(std::size_t index) -> void;
@@ -93,18 +70,18 @@ struct Archetype {
 
   auto delete_all_components() -> void;
 
-  auto has_component(std::size_t component_id) -> bool;
-  auto has_components(std::span<const std::size_t> component_ids) -> bool;
-
-  auto get_component_array(std::size_t component_id) -> ComponentArray &;
+  [[nodiscard]] auto has_component(std::size_t component_id) -> bool;
+  [[nodiscard]] auto has_components(std::span<const std::size_t> component_ids) -> bool;
 
   template <typename T>
-  auto get_component(Entity entity) -> T * {
+  [[nodiscard]] auto get_component(Entity entity) -> T * {
     assert(entity.arch_id == id);
     assert(entity.index < entities.size());
 
-    const auto component_id = typeid(T).hash_code();
-    auto &component_array = get_component_array(component_id);
+    auto it = std::ranges::find(component_ids, typeid(T).hash_code());
+    assert(it != component_ids.end()); // when failed: entity does not have component T
+
+    auto &component_array = components[it - component_ids.begin()];
     return reinterpret_cast<T *>(&component_array.array[entity.index * component_array.each_size]);
   }
 
@@ -115,6 +92,8 @@ struct Archetype {
   auto delete_entity(Entity entity) -> void;
 };
 
+struct Query;
+
 struct ArchetypeStorage {
   std::unordered_map<std::size_t, Archetype> archetypes;
 
@@ -123,7 +102,9 @@ struct ArchetypeStorage {
 
   static auto hash_components(std::span<ComponentInfo> const &s) -> std::size_t;
 
-  auto new_entity() -> Entity;
+  [[nodiscard]] auto new_query() -> Query;
+
+  [[nodiscard]] auto new_entity() -> Entity;
   auto delete_entity(Entity entity) -> void;
 
   template <typename T, typename... Args>
@@ -227,9 +208,40 @@ struct ArchetypeStorage {
     // update entity
     entity = new_entity;
   }
-
-  auto run_system(const System &system, double delta_time = 0, void *ptr = nullptr) -> void;
 };
+
+struct Query {
+  ArchetypeStorage *arch_storage;
+  std::vector<std::size_t> includes;
+  std::vector<std::size_t> excludes;
+
+  inline static std::unordered_map<std::size_t, Archetype>::iterator null_it;
+  std::unordered_map<std::size_t, Archetype>::iterator it;
+  std::size_t index = 0;
+
+  Query(ArchetypeStorage *arch_storage);
+
+  template <typename... T>
+  auto with() -> Query {
+    includes = {typeid(T).hash_code()...};
+    std::ranges::sort(includes, std::ranges::less());
+    return *this;
+  }
+
+  template <typename... T>
+  auto without() -> Query {
+    excludes = {typeid(T).hash_code()...};
+    std::ranges::sort(excludes, std::ranges::less());
+    return *this;
+  }
+
+  [[nodiscard]] auto is_query_satisfied(Archetype *arch) const -> bool;
+  [[nodiscard]] auto get_next_entity() -> std::tuple<Archetype *, Entity>;
+};
+
+#define for_each_entities(query) \
+  for (auto [arch, entity] = (query).get_next_entity(); arch != nullptr; \
+       std::tie(arch, entity) = (query).get_next_entity())
 
 } // namespace ruecs
 

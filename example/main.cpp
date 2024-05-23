@@ -35,40 +35,41 @@ auto main() -> int {
     }
   }
 
-  std::cout << "creating systems\n";
-  auto systems = std::vector<ruecs::System>{};
-
-  systems.emplace_back(ruecs::Query::with_components<Position>(),
-                       [](ruecs::Archetype &arch, ruecs::Entity entity, double, void *) {
-                         auto pos = arch.get_component<Position>(entity);
-                         std::cout << std::format("{},{}\n", pos->x, pos->y);
-                       });
-
-  systems.emplace_back(ruecs::Query::with_components<Position, Velocity>(),
-                       [](ruecs::Archetype &arch, ruecs::Entity entity, double, void *) {
-                         auto pos = arch.get_component<Position>(entity);
-                         auto vel = arch.get_component<Velocity>(entity);
-                         pos->x += vel->x;
-                         pos->y += vel->y;
-                         std::cout << std::format("{},{} {},{}\n", pos->x, pos->y, vel->x, vel->y);
-                       });
-
-  systems.emplace_back(ruecs::Query::with_components<Player>(),
-                       [](ruecs::Archetype &arch, ruecs::Entity entity, double, void *) {
-                         auto player = arch.get_component<Player>(entity);
-                         std::cout << std::format("{}\n", player->name);
-                       });
+  std::cout << "creating queries\n";
+  auto query_pos = arch_storage.new_query().with<Position>();
+  auto query_movable = arch_storage.new_query().with<Position, Velocity>();
+  auto query_player = arch_storage.new_query().with<Player>();
 
   std::cout << "running systems\n";
   auto start = std::chrono::high_resolution_clock::now();
-  for (const auto &system : systems) {
-    arch_storage.run_system(system);
+
+  for_each_entities(query_pos) {
+    auto pos = arch->get_component<Position>(entity);
+    std::cout << std::format("{},{}\n", pos->x, pos->y);
   }
+
+  for_each_entities(query_movable) {
+    auto pos = arch->get_component<Position>(entity);
+    auto vel = arch->get_component<Velocity>(entity);
+    pos->x += vel->x;
+    pos->y += vel->y;
+    std::cout << std::format("{},{} {},{}\n", pos->x, pos->y, vel->x, vel->y);
+  }
+
+  for_each_entities(query_pos) {
+    auto pos = arch->get_component<Position>(entity);
+    std::cout << std::format("{},{}\n", pos->x, pos->y);
+  }
+
+  for_each_entities(query_player) {
+    auto player = arch->get_component<Player>(entity);
+    std::cout << std::format("{}\n", player->name);
+  }
+
   auto end = std::chrono::high_resolution_clock::now();
-  std::cout << "done\n";
-
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-  std::cout << std::format("system time taken: {}ms\n", duration.count());
+  std::cout << std::format("running systems took {}ms\n", duration.count());
 
+  std::cout << "done\n";
   return EXIT_SUCCESS;
 }
