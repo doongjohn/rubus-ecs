@@ -1,7 +1,5 @@
 #include "ecs.hpp"
 
-#include <utility>
-
 namespace ruecs {
 
 ComponentArray::ComponentArray(std::size_t id, std::size_t each_size, void (*destructor)(void *))
