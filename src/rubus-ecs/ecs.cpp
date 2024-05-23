@@ -1,15 +1,17 @@
 #include "ecs.hpp"
 
+#include <utility>
+
 namespace ruecs {
 
 std::size_t Entity::cur_id = 0;
 
-System::System(const std::vector<std::size_t> &query, const SystemFn &&fn) : query{query}, fn{fn} {}
+System::System(Query query, SystemFn fn) : query{std::move(query)}, fn{std::move(fn)} {}
 
 ComponentArray::ComponentArray(std::size_t id, std::size_t each_size, void (*destructor)(void *))
     : id{id}, each_size{each_size}, destructor{destructor} {}
 
-ComponentArray::~ComponentArray() {
+auto ComponentArray::delete_all() -> void {
   for (auto i = std::size_t{}; i < count; ++i) {
     destructor(array.data() + i * each_size);
   }
@@ -32,8 +34,7 @@ auto ComponentArray::get_at(std::size_t index) -> std::span<uint8_t> {
 auto ComponentArray::set_at(std::size_t index, std::span<uint8_t> value) -> void {
   assert(index < count);
 
-  auto byte_index = index * each_size;
-  std::memcpy(array.data() + byte_index, value.data(), each_size);
+  std::memcpy(array.data() + index * each_size, value.data(), each_size);
 }
 
 auto ComponentArray::take_out_at(std::size_t index) -> void {
@@ -83,6 +84,12 @@ Archetype::Archetype(std::size_t id, std::span<ComponentInfo> infos) : id{id} {
   }
 }
 
+auto Archetype::delete_all_components() -> void {
+  for (auto &component_array : components) {
+    component_array.delete_all();
+  }
+}
+
 auto Archetype::has_component(std::size_t component_id) -> bool {
   return std::ranges::find(component_ids, component_id) != component_ids.end();
 }
@@ -114,7 +121,7 @@ auto Archetype::get_component_array(std::size_t component_id) -> ComponentArray 
   return components[it - component_ids.begin()];
 }
 
-auto Archetype::new_entity_uninitialized() -> Entity {
+auto Archetype::new_entity() -> Entity {
   auto entity = Entity{.id = ++Entity::cur_id, .arch_id = id, .index = entities.size()};
   entities.push_back(entity);
 
@@ -126,7 +133,7 @@ auto Archetype::new_entity_uninitialized() -> Entity {
   return entity;
 }
 
-auto Archetype::add_entity_uninitialized(Entity entity) -> Entity {
+auto Archetype::add_entity(Entity entity) -> Entity {
   entity.arch_id = id;
   entity.index = entities.size();
   entities.push_back(entity);
@@ -167,7 +174,14 @@ ArchetypeStorage::ArchetypeStorage() {
   archetypes.emplace(0, Archetype{0});
 }
 
+ArchetypeStorage::~ArchetypeStorage() {
+  for (auto &[_, arch] : archetypes) {
+    arch.delete_all_components();
+  }
+}
+
 auto ArchetypeStorage::hash_components(std::span<ComponentInfo> const &s) -> std::size_t {
+  // TODO: find a better way to hash multiple integers
   // https://stackoverflow.com/a/72073933
   auto hash = s.size();
   for (const auto &component_info : s) {
@@ -181,18 +195,24 @@ auto ArchetypeStorage::hash_components(std::span<ComponentInfo> const &s) -> std
 }
 
 auto ArchetypeStorage::new_entity() -> Entity {
-  return archetypes.at(0).new_entity_uninitialized();
+  return archetypes.at(0).new_entity();
 }
 
 auto ArchetypeStorage::delete_entity(Entity entity) -> void {
   archetypes.at(entity.arch_id).delete_entity(entity);
 }
 
-auto ArchetypeStorage::run_system(const System &system, void *ptr) -> void {
-  for (auto &[_, arch] : archetypes) { // TODO: use somthing better than `unorderd_map` for faster iteration
-    if (arch.has_components(system.query)) {
+auto ArchetypeStorage::run_system(const System &system, double delta_time, void *ptr) -> void {
+  // TODO: use somthing better than `unorderd_map` for faster iteration
+  // - https://martin.ankerl.com/2022/08/27/hashmap-bench-01/
+  // - https://github.com/martinus/unordered_dense
+  // - https://github.com/ktprime/emhash
+  // - https://github.com/greg7mdp/parallel-hashmap
+
+  for (auto &[_, arch] : archetypes) {
+    if (arch.has_components(system.query.component_ids)) {
       for (auto entity : arch.entities) {
-        system.fn(entity, arch, ptr);
+        system.fn(arch, entity, delta_time, ptr);
       }
     }
   }

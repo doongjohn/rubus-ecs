@@ -20,22 +20,27 @@ struct Entity {
 };
 
 struct Query {
+  std::vector<std::size_t> component_ids;
+
   template <typename... Components>
-  inline static auto with_components() -> std::vector<std::size_t> {
-    auto v = std::vector{typeid(Components).hash_code()...};
-    std::ranges::sort(v, std::ranges::less());
-    return v;
+  inline static auto with_components() -> Query {
+    auto result = Query{{typeid(Components).hash_code()...}};
+    std::ranges::sort(result.component_ids, std::ranges::less());
+    return result;
   }
 };
 
 struct Archetype;
-using SystemFn = std::function<void(Entity entity, Archetype &arch, void *ptr)>;
+struct ArchetypeStorage;
+
+// using SystemFn = void (*)(Archetype &arch, Entity entity, void *ptr);
+using SystemFn = std::function<void(Archetype &arch, Entity entity, double delta_time, void *ptr)>;
 
 struct System {
-  std::vector<std::size_t> query;
-  std::function<void(Entity entity, Archetype &arch, void *ptr)> fn;
+  Query query;
+  SystemFn fn;
 
-  System(const std::vector<std::size_t> &query, const SystemFn &&fn);
+  System(Query query, SystemFn fn);
 };
 
 struct ComponentInfo {
@@ -50,12 +55,13 @@ struct ComponentArray {
   std::size_t id = 0;
   std::size_t each_size = 0;
   std::size_t count = 0;
-  std::vector<uint8_t> array;
   void (*destructor)(void *component) = nullptr;
+  std::vector<uint8_t> array;
 
   ComponentArray() = default;
   ComponentArray(std::size_t id, std::size_t each_size, void (*destructor)(void *component));
-  ~ComponentArray();
+
+  auto delete_all() -> void;
 
   inline auto to_component_info() -> ComponentInfo {
     return {
@@ -75,17 +81,19 @@ struct ComponentArray {
 
 struct Archetype {
   std::size_t id = 0;
-  std::vector<Entity> entities;
   std::vector<std::size_t> component_ids; // sorted in ascending order
+  std::vector<Entity> entities;
   std::vector<ComponentArray> components;
 
-  Archetype() = default;
   explicit Archetype(std::size_t id);
   Archetype(std::size_t id, const ComponentInfo &info);
   Archetype(std::size_t id, std::span<ComponentInfo> infos);
 
+  auto delete_all_components() -> void;
+
   auto has_component(std::size_t component_id) -> bool;
   auto has_components(std::span<const std::size_t> component_ids) -> bool;
+
   auto get_component_array(std::size_t component_id) -> ComponentArray &;
 
   template <typename T>
@@ -98,8 +106,8 @@ struct Archetype {
     return reinterpret_cast<T *>(&component_array.array[entity.index * component_array.each_size]);
   }
 
-  auto new_entity_uninitialized() -> Entity;
-  auto add_entity_uninitialized(Entity entity) -> Entity;
+  auto new_entity() -> Entity;
+  auto add_entity(Entity entity) -> Entity;
 
   auto take_out_entity(Entity entity) -> void;
   auto delete_entity(Entity entity) -> void;
@@ -109,6 +117,7 @@ struct ArchetypeStorage {
   std::unordered_map<std::size_t, Archetype> archetypes;
 
   ArchetypeStorage();
+  ~ArchetypeStorage();
 
   static auto hash_components(std::span<ComponentInfo> const &s) -> std::size_t;
 
@@ -147,7 +156,7 @@ struct ArchetypeStorage {
     archetypes.try_emplace(new_arch_id, new_arch_id, component_infos);
 
     auto &new_arch = archetypes.at(new_arch_id);
-    auto new_entity = new_arch.add_entity_uninitialized(entity);
+    auto new_entity = new_arch.add_entity(entity);
 
     for (auto i = std::size_t{}, x = std::size_t{}; i < new_arch.components.size(); ++i) {
       auto ptr = new_arch.components[i].get_last().data();
@@ -196,7 +205,7 @@ struct ArchetypeStorage {
     archetypes.try_emplace(new_arch_id, new_arch_id, component_infos);
 
     auto &new_arch = archetypes.at(new_arch_id);
-    auto new_entity = new_arch.add_entity_uninitialized(entity);
+    auto new_entity = new_arch.add_entity(entity);
 
     for (auto i = std::size_t{}, x = std::size_t{}; i < new_arch.components.size(); ++i) {
       auto ptr = new_arch.components[i].get_last().data();
@@ -217,7 +226,7 @@ struct ArchetypeStorage {
     entity = new_entity;
   }
 
-  auto run_system(const System &system, void *ptr = nullptr) -> void;
+  auto run_system(const System &system, double delta_time = 0, void *ptr = nullptr) -> void;
 };
 
 } // namespace ruecs

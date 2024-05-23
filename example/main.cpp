@@ -39,13 +39,13 @@ auto main() -> int {
   auto systems = std::vector<ruecs::System>{};
 
   systems.emplace_back(ruecs::Query::with_components<Position>(),
-                       [](ruecs::Entity entity, ruecs::Archetype &arch, void *) {
+                       [](ruecs::Archetype &arch, ruecs::Entity entity, double, void *) {
                          auto pos = arch.get_component<Position>(entity);
                          std::cout << std::format("{},{}\n", pos->x, pos->y);
                        });
 
   systems.emplace_back(ruecs::Query::with_components<Position, Velocity>(),
-                       [](ruecs::Entity entity, ruecs::Archetype &arch, void *) {
+                       [](ruecs::Archetype &arch, ruecs::Entity entity, double, void *) {
                          auto pos = arch.get_component<Position>(entity);
                          auto vel = arch.get_component<Velocity>(entity);
                          pos->x += vel->x;
@@ -54,7 +54,7 @@ auto main() -> int {
                        });
 
   systems.emplace_back(ruecs::Query::with_components<Player>(),
-                       [](ruecs::Entity entity, ruecs::Archetype &arch, void *) {
+                       [](ruecs::Archetype &arch, ruecs::Entity entity, double, void *) {
                          auto player = arch.get_component<Player>(entity);
                          std::cout << std::format("{}\n", player->name);
                        });
@@ -67,7 +67,7 @@ auto main() -> int {
   auto end = std::chrono::high_resolution_clock::now();
   std::cout << "done\n";
 
-  auto duration = duration_cast<std::chrono::milliseconds>(end - start);
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
   std::cout << std::format("system time taken: {}ms\n", duration.count());
 
   return EXIT_SUCCESS;
