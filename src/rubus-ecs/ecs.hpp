@@ -17,6 +17,8 @@ struct Entity {
   std::size_t index = 0;
 
   static std::size_t cur_id;
+
+  auto operator==(const Entity &other) const -> bool = default;
 };
 
 struct Query {
