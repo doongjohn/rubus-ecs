@@ -82,13 +82,13 @@ auto Archetype::delete_all_components() -> void {
   }
 }
 
-[[nodiscard]] auto Archetype::has_component(std::size_t component_id) -> bool {
-  return std::ranges::find(component_ids, component_id) != component_ids.end();
+[[nodiscard]] auto Archetype::has_component(std::size_t id) -> bool {
+  return std::ranges::find(component_ids, id) != component_ids.end();
 }
 
-[[nodiscard]] auto Archetype::has_components(std::span<const std::size_t> component_ids) -> bool {
-  const auto &A = this->component_ids;
-  const auto &B = component_ids;
+[[nodiscard]] auto Archetype::has_components(std::span<const std::size_t> ids) -> bool {
+  const auto &A = component_ids;
+  const auto &B = ids;
 
   auto i = std::size_t{};
   auto j = std::size_t{};
@@ -107,8 +107,28 @@ auto Archetype::delete_all_components() -> void {
   return j == B.size();
 }
 
-auto Archetype::new_entity() -> Entity {
-  auto entity = Entity{.id = ++Entity::cur_id, .arch_id = id, .index = entities.size()};
+[[nodiscard]] auto Archetype::not_has_components(std::span<const std::size_t> ids) -> bool {
+  const auto &A = component_ids;
+  const auto &B = ids;
+
+  auto i = std::size_t{};
+  auto j = std::size_t{};
+
+  while (i < A.size() && j < B.size()) {
+    if (A[i] == B[j]) {
+      return false;
+    } else if (A[i] < B[j]) {
+      ++i;
+    } else {
+      ++j;
+    }
+  }
+
+  return true;
+}
+
+auto Archetype::new_entity(ArchetypeStorage *arch_storage) -> Entity {
+  auto entity = Entity{.arch_storage = arch_storage, .id = ++Entity::id_gen, .arch_id = id, .index = entities.size()};
   entities.push_back(entity);
 
   for (auto &component_array : components) {
@@ -180,25 +200,21 @@ auto ArchetypeStorage::hash_components(std::span<ComponentInfo> const &s) -> std
   return hash;
 }
 
-[[nodiscard]] auto ArchetypeStorage::new_query() -> Query {
-  return Query{this};
-}
-
 [[nodiscard]] auto ArchetypeStorage::new_entity() -> Entity {
-  return archetypes.at(0).new_entity();
+  return archetypes.at(0).new_entity(this);
 }
 
 auto ArchetypeStorage::delete_entity(Entity entity) -> void {
   archetypes.at(entity.arch_id).delete_entity(entity);
 }
 
-Query::Query(ArchetypeStorage *arch_storage) : arch_storage{arch_storage}, it{null_it} {}
+Query::Query() : it{null_it} {}
 
 inline auto Query::is_query_satisfied(Archetype *arch) const -> bool {
-  return arch->has_components(includes);
+  return arch->has_components(includes) && arch->not_has_components(excludes);
 }
 
-auto Query::get_next_entity() -> std::tuple<Archetype *, Entity> {
+auto Query::get_next_entity(ArchetypeStorage *arch_storage) -> std::tuple<Archetype *, Entity> {
   if (it == null_it) {
     it = arch_storage->archetypes.begin();
   }

@@ -12,12 +12,21 @@
 
 namespace ruecs {
 
-struct Entity {
-  inline static std::size_t cur_id = 0;
+struct ArchetypeStorage;
 
+struct Entity {
+  ArchetypeStorage *arch_storage = nullptr;
+
+  inline static std::size_t id_gen = 0;
   std::size_t id = 0;
   std::size_t arch_id = 0;
   std::size_t index = 0;
+
+  template <typename T, typename... Args>
+  auto add_component(Args &&...args) -> void;
+
+  template <typename T>
+  auto remove_component() -> void;
 
   auto operator==(const Entity &other) const -> bool = default;
 };
@@ -70,8 +79,9 @@ struct Archetype {
 
   auto delete_all_components() -> void;
 
-  [[nodiscard]] auto has_component(std::size_t component_id) -> bool;
-  [[nodiscard]] auto has_components(std::span<const std::size_t> component_ids) -> bool;
+  [[nodiscard]] auto has_component(std::size_t id) -> bool;
+  [[nodiscard]] auto has_components(std::span<const std::size_t> ids) -> bool;
+  [[nodiscard]] auto not_has_components(std::span<const std::size_t> ids) -> bool;
 
   template <typename T>
   [[nodiscard]] auto get_component(Entity entity) -> T * {
@@ -85,7 +95,7 @@ struct Archetype {
     return reinterpret_cast<T *>(&component_array.array[entity.index * component_array.each_size]);
   }
 
-  auto new_entity() -> Entity;
+  auto new_entity(ArchetypeStorage *arch_storage) -> Entity;
   auto add_entity(Entity entity) -> Entity;
 
   auto take_out_entity(Entity entity) -> void;
@@ -101,8 +111,6 @@ struct ArchetypeStorage {
   ~ArchetypeStorage();
 
   static auto hash_components(std::span<ComponentInfo> const &s) -> std::size_t;
-
-  [[nodiscard]] auto new_query() -> Query;
 
   [[nodiscard]] auto new_entity() -> Entity;
   auto delete_entity(Entity entity) -> void;
@@ -210,8 +218,17 @@ struct ArchetypeStorage {
   }
 };
 
+template <typename T, typename... Args>
+auto Entity::add_component(Args &&...args) -> void {
+  arch_storage->add_component<T>(*this, args...);
+}
+
+template <typename T>
+auto Entity::remove_component() -> void {
+  arch_storage->remove_component<T>(*this);
+}
+
 struct Query {
-  ArchetypeStorage *arch_storage;
   std::vector<std::size_t> includes;
   std::vector<std::size_t> excludes;
 
@@ -219,7 +236,7 @@ struct Query {
   std::unordered_map<std::size_t, Archetype>::iterator it;
   std::size_t index = 0;
 
-  explicit Query(ArchetypeStorage *arch_storage);
+  Query();
 
   template <typename... T>
   auto with() -> Query {
@@ -236,12 +253,12 @@ struct Query {
   }
 
   [[nodiscard]] auto is_query_satisfied(Archetype *arch) const -> bool;
-  [[nodiscard]] auto get_next_entity() -> std::tuple<Archetype *, Entity>;
+  [[nodiscard]] auto get_next_entity(ArchetypeStorage *arch_storage) -> std::tuple<Archetype *, Entity>;
 };
 
-#define for_each_entities(query) \
-  for (auto [arch, entity] = (query).get_next_entity(); arch != nullptr; \
-       std::tie(arch, entity) = (query).get_next_entity())
+#define for_each_entities(arch_storage, query) \
+  for (auto [arch, entity] = (query).get_next_entity(arch_storage); arch != nullptr; \
+       std::tie(arch, entity) = (query).get_next_entity(arch_storage))
 
 } // namespace ruecs
 
