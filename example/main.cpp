@@ -1,13 +1,12 @@
 #include <cstdlib>
-#include <format>
 #include <chrono>
+#include <format>
 #include <iostream>
-
-#include <rubus-ecs/ecs.hpp>
 
 // TODO
 // - modify (add/remove component, new/delete entity) after iteration
 // - archetype cache
+#include <rubus-ecs/ecs.hpp>
 
 struct Position {
   float x = 0;
