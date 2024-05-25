@@ -229,7 +229,9 @@ auto Query::get_next_entity(ArchetypeStorage *arch_storage) -> std::tuple<Archet
     for (auto i = std::size_t{1}; i < includes.size(); ++i) {
       unorderd_set_intersection(archs, arch_storage->archs_of_component.at(includes[i]));
     }
-    // TODO: unorderd_set remove excludes
+    for (auto i = std::size_t{0}; i < excludes.size(); ++i) {
+      unorderd_set_exclude(archs, arch_storage->archs_of_component.at(excludes[i]));
+    }
     it = archs.begin();
   }
 

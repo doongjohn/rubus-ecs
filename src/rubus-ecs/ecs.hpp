@@ -97,6 +97,13 @@ static inline auto unorderd_set_intersection(Set &s, const Set &other) -> void {
   }
 }
 
+template <typename Set, typename Key = typename Set::value_type>
+static inline auto unorderd_set_exclude(Set &s, const Set &exclude) -> void {
+  for (const auto &item : exclude) {
+    s.erase(item);
+  }
+}
+
 struct ComponentInfo {
   ComponentId id;
   std::size_t size = 0;
