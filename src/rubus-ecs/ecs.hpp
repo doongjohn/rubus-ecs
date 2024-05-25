@@ -12,15 +12,50 @@
 
 namespace ruecs {
 
+struct EntityId {
+  std::size_t id = 0;
+
+  auto operator==(const EntityId &other) const -> bool = default;
+};
+
+struct EntityIndex {
+  std::size_t i = 0;
+
+  auto operator==(const EntityIndex &other) const -> bool = default;
+};
+
+struct ComponentId {
+  std::size_t id = 0;
+
+  auto operator<=>(const ComponentId &other) const -> std::strong_ordering = default;
+};
+
+struct ArchtypeId {
+  std::size_t id = 0;
+
+  auto operator==(const ArchtypeId &other) const -> bool = default;
+};
+
+} // namespace ruecs
+
+template <>
+struct std::hash<ruecs::ArchtypeId> {
+  inline auto operator()(const ruecs::ArchtypeId &id) const -> size_t {
+    return id.id;
+  }
+};
+
+namespace ruecs {
+
 struct ArchetypeStorage;
 
 struct Entity {
   ArchetypeStorage *arch_storage = nullptr;
 
   inline static std::size_t id_gen = 0;
-  std::size_t id = 0;
-  std::size_t arch_id = 0;
-  std::size_t index = 0;
+  EntityId id;
+  ArchtypeId arch_id;
+  EntityIndex index;
 
   template <typename T, typename... Args>
   auto add_component(Args &&...args) -> void;
@@ -31,8 +66,19 @@ struct Entity {
   auto operator==(const Entity &other) const -> bool = default;
 };
 
+} // namespace ruecs
+
+template <>
+struct std::hash<ruecs::Entity> {
+  inline auto operator()(const ruecs::Entity &e) const -> size_t {
+    return e.id.id;
+  }
+};
+
+namespace ruecs {
+
 struct ComponentInfo {
-  std::size_t id = 0;
+  ComponentId id;
   std::size_t size = 0;
   void (*destructor)(void *component) = nullptr;
 
@@ -40,14 +86,14 @@ struct ComponentInfo {
 };
 
 struct ComponentArray {
-  std::size_t id = 0;
+  ComponentId id;
   std::size_t each_size = 0;
   std::size_t count = 0;
   void (*destructor)(void *component) = nullptr;
   std::vector<uint8_t> array;
 
   ComponentArray() = default;
-  ComponentArray(std::size_t id, std::size_t each_size, void (*destructor)(void *component));
+  ComponentArray(ComponentId id, std::size_t each_size, void (*destructor)(void *component));
 
   auto delete_all() -> void;
 
@@ -60,39 +106,39 @@ struct ComponentArray {
   }
 
   [[nodiscard]] auto get_last() -> std::span<uint8_t>;
-  [[nodiscard]] auto get_at(std::size_t index) -> std::span<uint8_t>;
-  auto set_at(std::size_t index, std::span<uint8_t> value) -> void;
+  [[nodiscard]] auto get_at(EntityIndex index) -> std::span<uint8_t>;
+  auto set_at(EntityIndex index, std::span<uint8_t> value) -> void;
 
-  auto take_out_at(std::size_t index) -> void;
-  auto delete_at(std::size_t index) -> void;
+  auto take_out_at(EntityIndex index) -> void;
+  auto delete_at(EntityIndex index) -> void;
 };
 
 struct Archetype {
-  std::size_t id = 0;
-  std::vector<std::size_t> component_ids; // sorted in ascending order
+  ArchtypeId id;
+  std::vector<ComponentId> component_ids; // sorted in ascending order
   std::vector<Entity> entities;
   std::vector<ComponentArray> components;
 
-  explicit Archetype(std::size_t id);
-  Archetype(std::size_t id, const ComponentInfo &info);
-  Archetype(std::size_t id, std::span<ComponentInfo> infos);
+  explicit Archetype(ArchtypeId id);
+  Archetype(ArchtypeId id, const ComponentInfo &info);
+  Archetype(ArchtypeId id, std::span<ComponentInfo> infos);
 
   auto delete_all_components() -> void;
 
-  [[nodiscard]] auto has_component(std::size_t id) -> bool;
-  [[nodiscard]] auto has_components(std::span<const std::size_t> ids) -> bool;
-  [[nodiscard]] auto not_has_components(std::span<const std::size_t> ids) -> bool;
+  [[nodiscard]] auto has_component(ComponentId id) -> bool;
+  [[nodiscard]] auto has_components(std::span<const ComponentId> ids) -> bool;
+  [[nodiscard]] auto not_has_components(std::span<const ComponentId> ids) -> bool;
 
   template <typename T>
   [[nodiscard]] auto get_component(Entity entity) -> T * {
     assert(entity.arch_id == id);
-    assert(entity.index < entities.size());
+    assert(entity.index.i < entities.size());
 
-    auto it = std::ranges::find(component_ids, typeid(T).hash_code());
+    auto it = std::ranges::find(component_ids, ComponentId{typeid(T).hash_code()});
     assert(it != component_ids.end()); // when failed: entity does not have component T
 
     auto &component_array = components[it - component_ids.begin()];
-    return reinterpret_cast<T *>(&component_array.array[entity.index * component_array.each_size]);
+    return reinterpret_cast<T *>(&component_array.array[entity.index.i * component_array.each_size]);
   }
 
   auto new_entity(ArchetypeStorage *arch_storage) -> Entity;
@@ -105,26 +151,26 @@ struct Archetype {
 struct Query;
 
 struct ArchetypeStorage {
-  std::unordered_map<std::size_t, Archetype> archetypes;
+  std::unordered_map<ArchtypeId, Archetype> archetypes;
 
   ArchetypeStorage();
   ~ArchetypeStorage();
 
-  static auto hash_components(std::span<ComponentInfo> const &s) -> std::size_t;
+  static auto get_archetype_id(std::span<ComponentInfo> const &s) -> ArchtypeId;
 
   [[nodiscard]] auto new_entity() -> Entity;
   auto delete_entity(Entity entity) -> void;
 
   template <typename T, typename... Args>
   auto add_component(Entity &entity, Args &&...args) -> void {
-    const auto component_id = typeid(T).hash_code();
+    const auto component_id = ComponentId{typeid(T).hash_code()};
 
     auto &old_arch = archetypes.at(entity.arch_id);
     if (old_arch.has_component(component_id)) {
       return;
     }
 
-    auto it = std::ranges::find_if(old_arch.component_ids, [=](std::size_t id) {
+    auto it = std::ranges::find_if(old_arch.component_ids, [=](ComponentId id) {
       return id > component_id;
     });
     const auto insert_index = static_cast<std::size_t>(it - old_arch.component_ids.begin());
@@ -143,7 +189,7 @@ struct ArchetypeStorage {
     }
 
     // calculate new arch
-    const auto new_arch_id = hash_components(component_infos);
+    const auto new_arch_id = get_archetype_id(component_infos);
     archetypes.try_emplace(new_arch_id, new_arch_id, component_infos);
 
     auto &new_arch = archetypes.at(new_arch_id);
@@ -170,14 +216,14 @@ struct ArchetypeStorage {
 
   template <typename T>
   auto remove_component(Entity &entity) -> void {
-    const auto component_id = typeid(T).hash_code();
+    const auto component_id = ComponentId{typeid(T).hash_code()};
 
     auto &old_arch = archetypes.at(entity.arch_id);
     if (not old_arch.has_component(component_id)) {
       return;
     }
 
-    auto it = std::ranges::find_if(old_arch.component_ids, [=](std::size_t id) {
+    auto it = std::ranges::find_if(old_arch.component_ids, [=](ComponentId id) {
       return id > component_id;
     });
     auto remove_index = static_cast<std::size_t>(it - old_arch.component_ids.begin());
@@ -192,7 +238,7 @@ struct ArchetypeStorage {
     }
 
     // calculate new arch
-    auto new_arch_id = hash_components(component_infos);
+    auto new_arch_id = get_archetype_id(component_infos);
     archetypes.try_emplace(new_arch_id, new_arch_id, component_infos);
 
     auto &new_arch = archetypes.at(new_arch_id);
@@ -229,25 +275,25 @@ auto Entity::remove_component() -> void {
 }
 
 struct Query {
-  std::vector<std::size_t> includes;
-  std::vector<std::size_t> excludes;
+  std::vector<ComponentId> includes;
+  std::vector<ComponentId> excludes;
 
-  inline static std::unordered_map<std::size_t, Archetype>::iterator null_it;
-  std::unordered_map<std::size_t, Archetype>::iterator it;
+  inline static std::unordered_map<ArchtypeId, Archetype>::iterator null_it;
+  std::unordered_map<ArchtypeId, Archetype>::iterator it;
   std::size_t index = 0;
 
   Query();
 
   template <typename... T>
   auto with() -> Query {
-    includes = {typeid(T).hash_code()...};
+    includes = {{typeid(T).hash_code()}...};
     std::ranges::sort(includes, std::ranges::less());
     return *this;
   }
 
   template <typename... T>
   auto without() -> Query {
-    excludes = {typeid(T).hash_code()...};
+    excludes = {{typeid(T).hash_code()}...};
     std::ranges::sort(excludes, std::ranges::less());
     return *this;
   }
@@ -261,12 +307,3 @@ struct Query {
        std::tie(arch, entity) = (query).get_next_entity(arch_storage))
 
 } // namespace ruecs
-
-namespace std {
-template <>
-struct hash<ruecs::Entity> {
-  inline auto operator()(const ruecs::Entity &e) const -> size_t {
-    return e.id;
-  }
-};
-} // namespace std

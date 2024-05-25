@@ -4,7 +4,8 @@
 #include <iostream>
 
 // TODO
-// - modify (add/remove component, new/delete entity) after iteration
+// - modify after iteration
+// - bulk modification
 // - archetype cache
 #include <rubus-ecs/ecs.hpp>
 
