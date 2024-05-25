@@ -56,9 +56,9 @@ auto ComponentInfo::operator<=>(const ComponentInfo &other) const -> std::strong
   return this->id <=> other.id;
 }
 
-Archetype::Archetype(ArchtypeId id) : id{id} {}
+Archetype::Archetype(ArchetypeId id) : id{id} {}
 
-Archetype::Archetype(ArchtypeId id, const ComponentInfo &info) : id{id} {
+Archetype::Archetype(ArchetypeId id, const ComponentInfo &info) : id{id} {
   component_ids.resize(1);
   component_ids[0] = info.id;
 
@@ -68,7 +68,7 @@ Archetype::Archetype(ArchtypeId id, const ComponentInfo &info) : id{id} {
   components[0].destructor = info.destructor;
 }
 
-Archetype::Archetype(ArchtypeId id, std::span<ComponentInfo> infos) : id{id} {
+Archetype::Archetype(ArchetypeId id, std::span<ComponentInfo> infos) : id{id} {
   component_ids.resize(infos.size());
   for (auto i = std::size_t{}; i < infos.size(); ++i) {
     component_ids[i] = infos[i].id;
@@ -190,7 +190,7 @@ auto Archetype::delete_entity(Entity entity) -> void {
 }
 
 ArchetypeStorage::ArchetypeStorage() {
-  archetypes.emplace(0, Archetype{ArchtypeId{0}});
+  archetypes.emplace(0, Archetype{ArchetypeId{0}});
 }
 
 ArchetypeStorage::~ArchetypeStorage() {
@@ -199,7 +199,7 @@ ArchetypeStorage::~ArchetypeStorage() {
   }
 }
 
-auto ArchetypeStorage::get_archetype_id(std::span<ComponentInfo> const &s) -> ArchtypeId {
+auto ArchetypeStorage::get_archetype_id(std::span<ComponentInfo> const &s) -> ArchetypeId {
   // TODO: find a better way to hash multiple integers
   // https://stackoverflow.com/a/72073933
   auto hash = s.size();
@@ -210,7 +210,7 @@ auto ArchetypeStorage::get_archetype_id(std::span<ComponentInfo> const &s) -> Ar
     x = (x >> 16) ^ x;
     hash ^= x + 0x9e3779b9 + (hash << 6) + (hash >> 2);
   }
-  return ArchtypeId{hash};
+  return ArchetypeId{hash};
 }
 
 [[nodiscard]] auto ArchetypeStorage::new_entity() -> Entity {
@@ -223,31 +223,24 @@ auto ArchetypeStorage::delete_entity(Entity entity) -> void {
 
 Query::Query() : it{null_it} {}
 
-inline auto Query::is_query_satisfied(Archetype *arch) const -> bool {
-  return arch->has_components(includes) && arch->not_has_components(excludes);
-}
-
 auto Query::get_next_entity(ArchetypeStorage *arch_storage) -> std::tuple<Archetype *, Entity> {
   if (it == null_it) {
-    it = arch_storage->archetypes.begin();
+    archs = arch_storage->archs_of_component.at(includes[0]);
+    for (auto i = std::size_t{1}; i < includes.size(); ++i) {
+      unorderd_set_intersection(archs, arch_storage->archs_of_component.at(includes[i]));
+    }
+    // TODO: unorderd_set remove excludes
+    it = archs.begin();
   }
 
-  // TODO: use somthing better than `std::unorderd_map` for faster iteration
-  // - https://martin.ankerl.com/2022/08/27/hashmap-bench-01/
-  // - https://github.com/martinus/unordered_dense
-  // - https://github.com/ktprime/emhash
-  // - https://github.com/greg7mdp/parallel-hashmap
-  while (it != arch_storage->archetypes.end()) {
-    auto arch = &it->second;
+  while (it != archs.end()) {
+    auto arch = &arch_storage->archetypes.at(*it);
     if (index == arch->entities.size()) {
       it = std::next(it);
       index = 0;
-      continue;
-    }
-    if (is_query_satisfied(arch)) {
+    } else {
       return {arch, arch->entities[index++]};
     }
-    index += 1;
   }
 
   it = null_it;

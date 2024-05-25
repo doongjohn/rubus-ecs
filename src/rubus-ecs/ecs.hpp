@@ -7,6 +7,7 @@
 #include <tuple>
 #include <span>
 #include <vector>
+#include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
 
@@ -30,17 +31,24 @@ struct ComponentId {
   auto operator<=>(const ComponentId &other) const -> std::strong_ordering = default;
 };
 
-struct ArchtypeId {
+struct ArchetypeId {
   std::size_t id = 0;
 
-  auto operator==(const ArchtypeId &other) const -> bool = default;
+  auto operator==(const ArchetypeId &other) const -> bool = default;
 };
 
 } // namespace ruecs
 
 template <>
-struct std::hash<ruecs::ArchtypeId> {
-  inline auto operator()(const ruecs::ArchtypeId &id) const -> size_t {
+struct std::hash<ruecs::ComponentId> {
+  inline auto operator()(const ruecs::ComponentId &id) const -> size_t {
+    return id.id;
+  }
+};
+
+template <>
+struct std::hash<ruecs::ArchetypeId> {
+  inline auto operator()(const ruecs::ArchetypeId &id) const -> size_t {
     return id.id;
   }
 };
@@ -52,9 +60,9 @@ struct ArchetypeStorage;
 struct Entity {
   ArchetypeStorage *arch_storage = nullptr;
 
-  inline static std::size_t id_gen = 0;
+  static inline std::size_t id_gen = 0;
   EntityId id;
-  ArchtypeId arch_id;
+  ArchetypeId arch_id;
   EntityIndex index;
 
   template <typename T, typename... Args>
@@ -76,6 +84,18 @@ struct std::hash<ruecs::Entity> {
 };
 
 namespace ruecs {
+
+template <typename Set, typename Key = typename Set::value_type>
+static inline auto unorderd_set_intersection(Set &s, const Set &other) -> void {
+  auto it = s.begin();
+  while (it != s.end()) {
+    if (other.find(*it) == other.end()) {
+      it = s.erase(it);
+    } else {
+      it = std::next(it);
+    }
+  }
+}
 
 struct ComponentInfo {
   ComponentId id;
@@ -114,14 +134,14 @@ struct ComponentArray {
 };
 
 struct Archetype {
-  ArchtypeId id;
+  ArchetypeId id;
   std::vector<ComponentId> component_ids; // sorted in ascending order
   std::vector<Entity> entities;
   std::vector<ComponentArray> components;
 
-  explicit Archetype(ArchtypeId id);
-  Archetype(ArchtypeId id, const ComponentInfo &info);
-  Archetype(ArchtypeId id, std::span<ComponentInfo> infos);
+  explicit Archetype(ArchetypeId id);
+  Archetype(ArchetypeId id, const ComponentInfo &info);
+  Archetype(ArchetypeId id, std::span<ComponentInfo> infos);
 
   auto delete_all_components() -> void;
 
@@ -151,12 +171,13 @@ struct Archetype {
 struct Query;
 
 struct ArchetypeStorage {
-  std::unordered_map<ArchtypeId, Archetype> archetypes;
+  std::unordered_map<ArchetypeId, Archetype> archetypes;
+  std::unordered_map<ComponentId, std::unordered_set<ArchetypeId>> archs_of_component;
 
   ArchetypeStorage();
   ~ArchetypeStorage();
 
-  static auto get_archetype_id(std::span<ComponentInfo> const &s) -> ArchtypeId;
+  static auto get_archetype_id(std::span<ComponentInfo> const &s) -> ArchetypeId;
 
   [[nodiscard]] auto new_entity() -> Entity;
   auto delete_entity(Entity entity) -> void;
@@ -188,9 +209,10 @@ struct ArchetypeStorage {
       }
     }
 
-    // calculate new arch
+    // get new arch
     const auto new_arch_id = get_archetype_id(component_infos);
     archetypes.try_emplace(new_arch_id, new_arch_id, component_infos);
+    archs_of_component.try_emplace(component_id);
 
     auto &new_arch = archetypes.at(new_arch_id);
     auto new_entity = new_arch.add_entity(entity);
@@ -201,9 +223,11 @@ struct ArchetypeStorage {
         x = 1;
         // construct new component
         new (reinterpret_cast<T *>(ptr)) T{args...};
+        archs_of_component.at(component_id).emplace(new_arch.id);
       } else {
         // copy components
         std::memcpy(ptr, old_arch.components[i - x].get_at(entity.index).data(), old_arch.components[i - x].each_size);
+        archs_of_component.at(old_arch.components[i - x].id).emplace(new_arch.id);
       }
     }
 
@@ -237,7 +261,7 @@ struct ArchetypeStorage {
       }
     }
 
-    // calculate new arch
+    // get new arch
     auto new_arch_id = get_archetype_id(component_infos);
     archetypes.try_emplace(new_arch_id, new_arch_id, component_infos);
 
@@ -277,9 +301,12 @@ auto Entity::remove_component() -> void {
 struct Query {
   std::vector<ComponentId> includes;
   std::vector<ComponentId> excludes;
+  std::unordered_set<ArchetypeId> archs;
 
-  inline static std::unordered_map<ArchtypeId, Archetype>::iterator null_it;
-  std::unordered_map<ArchtypeId, Archetype>::iterator it;
+  // static inline std::unordered_map<ArchetypeId, Archetype>::iterator null_it;
+  // std::unordered_map<ArchetypeId, Archetype>::iterator it;
+  static inline std::unordered_set<ArchetypeId>::iterator null_it;
+  std::unordered_set<ArchetypeId>::iterator it;
   std::size_t index = 0;
 
   Query();
@@ -298,7 +325,6 @@ struct Query {
     return *this;
   }
 
-  [[nodiscard]] auto is_query_satisfied(Archetype *arch) const -> bool;
   [[nodiscard]] auto get_next_entity(ArchetypeStorage *arch_storage) -> std::tuple<Archetype *, Entity>;
 };
 
