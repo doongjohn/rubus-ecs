@@ -308,12 +308,10 @@ auto Entity::remove_component() -> void {
 struct Query {
   std::vector<ComponentId> includes;
   std::vector<ComponentId> excludes;
-  std::unordered_set<ArchetypeId> archs;
 
-  // static inline std::unordered_map<ArchetypeId, Archetype>::iterator null_it;
-  // std::unordered_map<ArchetypeId, Archetype>::iterator it;
-  static inline std::unordered_set<ArchetypeId>::iterator null_it;
+  std::unordered_set<ArchetypeId> archs;
   std::unordered_set<ArchetypeId>::iterator it;
+  static inline std::unordered_set<ArchetypeId>::iterator null_it;
   std::size_t index = 0;
 
   Query();
