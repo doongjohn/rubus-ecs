@@ -53,7 +53,7 @@ auto ComponentArray::delete_at(EntityIndex index) -> void {
 }
 
 auto ComponentInfo::operator<=>(const ComponentInfo &other) const -> std::strong_ordering {
-  return this->id <=> other.id;
+  return id <=> other.id;
 }
 
 Archetype::Archetype(ArchetypeId id) : id{id} {}
@@ -92,7 +92,7 @@ auto Archetype::delete_all_components() -> void {
   return std::ranges::find(component_ids, id) != component_ids.end();
 }
 
-[[nodiscard]] auto Archetype::has_components(std::span<const ComponentId> ids) -> bool {
+[[nodiscard]] auto Archetype::has_components(std::span<ComponentId> ids) -> bool {
   const auto &A = component_ids;
   const auto &B = ids;
 
@@ -113,7 +113,7 @@ auto Archetype::delete_all_components() -> void {
   return j == B.size();
 }
 
-[[nodiscard]] auto Archetype::not_has_components(std::span<const ComponentId> ids) -> bool {
+[[nodiscard]] auto Archetype::not_has_components(std::span<ComponentId> ids) -> bool {
   const auto &A = component_ids;
   const auto &B = ids;
 
@@ -199,15 +199,15 @@ ArchetypeStorage::~ArchetypeStorage() {
   }
 }
 
-auto ArchetypeStorage::get_archetype_id(std::span<ComponentInfo> const &s) -> ArchetypeId {
+auto ArchetypeStorage::get_archetype_id(std::span<ComponentInfo> s) -> ArchetypeId {
   // TODO: find a better way to hash multiple integers
   // https://stackoverflow.com/a/72073933
   auto hash = s.size();
   for (const auto &component_info : s) {
     auto x = component_info.id.id;
-    x = ((x >> 16) ^ x) * 0x45d9f3b;
-    x = ((x >> 16) ^ x) * 0x45d9f3b;
-    x = (x >> 16) ^ x;
+    x = ((x >> 32) ^ x) * 0x45d9f3b;
+    x = ((x >> 32) ^ x) * 0x45d9f3b;
+    x = (x >> 32) ^ x;
     hash ^= x + 0x9e3779b9 + (hash << 6) + (hash >> 2);
   }
   return ArchetypeId{hash};
@@ -223,8 +223,10 @@ auto ArchetypeStorage::delete_entity(Entity entity) -> void {
 
 Query::Query() : it{null_it} {}
 
-auto Query::get_next_entity(ArchetypeStorage *arch_storage) -> std::tuple<Archetype *, Entity> {
-  if (it == null_it) {
+auto Query::refresh(ArchetypeStorage *arch_storage) -> void {
+  if (includes.empty()) {
+    archs = {};
+  } else {
     archs = arch_storage->archs_of_component.at(includes[0]);
     for (auto i = std::size_t{1}; i < includes.size(); ++i) {
       unorderd_set_intersection(archs, arch_storage->archs_of_component.at(includes[i]));
@@ -232,9 +234,11 @@ auto Query::get_next_entity(ArchetypeStorage *arch_storage) -> std::tuple<Archet
     for (auto i = std::size_t{0}; i < excludes.size(); ++i) {
       unorderd_set_exclude(archs, arch_storage->archs_of_component.at(excludes[i]));
     }
-    it = archs.begin();
   }
+  it = archs.begin();
+}
 
+auto Query::get_next_entity(ArchetypeStorage *arch_storage) -> std::tuple<Archetype *, Entity> {
   while (it != archs.end()) {
     auto arch = &arch_storage->archetypes.at(*it);
     if (index == arch->entities.size()) {

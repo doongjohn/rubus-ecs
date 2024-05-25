@@ -8,7 +8,6 @@
 #include <span>
 #include <vector>
 #include <unordered_set>
-#include <unordered_map>
 #include <algorithm>
 
 namespace ruecs {
@@ -153,8 +152,8 @@ struct Archetype {
   auto delete_all_components() -> void;
 
   [[nodiscard]] auto has_component(ComponentId id) -> bool;
-  [[nodiscard]] auto has_components(std::span<const ComponentId> ids) -> bool;
-  [[nodiscard]] auto not_has_components(std::span<const ComponentId> ids) -> bool;
+  [[nodiscard]] auto has_components(std::span<ComponentId> ids) -> bool;
+  [[nodiscard]] auto not_has_components(std::span<ComponentId> ids) -> bool;
 
   template <typename T>
   [[nodiscard]] auto get_component(Entity entity) -> T * {
@@ -184,7 +183,7 @@ struct ArchetypeStorage {
   ArchetypeStorage();
   ~ArchetypeStorage();
 
-  static auto get_archetype_id(std::span<ComponentInfo> const &s) -> ArchetypeId;
+  static auto get_archetype_id(std::span<ComponentInfo> s) -> ArchetypeId;
 
   [[nodiscard]] auto new_entity() -> Entity;
   auto delete_entity(Entity entity) -> void;
@@ -330,10 +329,12 @@ struct Query {
     return *this;
   }
 
+  auto refresh(ArchetypeStorage *arch_storage) -> void;
   [[nodiscard]] auto get_next_entity(ArchetypeStorage *arch_storage) -> std::tuple<Archetype *, Entity>;
 };
 
 #define for_each_entities(arch_storage, query) \
+  (query).refresh(arch_storage); \
   for (auto [arch, entity] = (query).get_next_entity(arch_storage); arch != nullptr; \
        std::tie(arch, entity) = (query).get_next_entity(arch_storage))
 

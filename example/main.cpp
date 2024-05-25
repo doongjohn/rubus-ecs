@@ -7,6 +7,7 @@
 // - modify after iteration
 // - bulk modification
 // - archetype cache
+// - component toggle
 #include <rubus-ecs/ecs.hpp>
 
 struct Position {
