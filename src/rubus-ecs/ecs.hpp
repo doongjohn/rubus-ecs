@@ -121,8 +121,6 @@ struct ComponentArray {
   ComponentArray() = default;
   ComponentArray(ComponentId id, std::size_t each_size, void (*destructor)(void *component));
 
-  auto delete_all() -> void;
-
   [[nodiscard]] inline auto to_component_info() -> ComponentInfo {
     return {
       .id = id,
@@ -137,6 +135,7 @@ struct ComponentArray {
 
   auto take_out_at(EntityIndex index) -> void;
   auto delete_at(EntityIndex index) -> void;
+  auto delete_all() -> void;
 };
 
 struct Archetype {

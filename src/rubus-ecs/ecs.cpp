@@ -5,12 +5,6 @@ namespace ruecs {
 ComponentArray::ComponentArray(ComponentId id, std::size_t each_size, void (*destructor)(void *))
     : id{id}, each_size{each_size}, destructor{destructor} {}
 
-auto ComponentArray::delete_all() -> void {
-  for (auto i = std::size_t{}; i < count; ++i) {
-    destructor(array.data() + i * each_size);
-  }
-}
-
 [[nodiscard]] auto ComponentArray::get_last() -> std::span<uint8_t> {
   assert(count != 0);
 
@@ -49,6 +43,12 @@ auto ComponentArray::delete_at(EntityIndex index) -> void {
   if (each_size != 0) {
     destructor(array.data() + index.i * each_size);
     take_out_at(index);
+  }
+}
+
+auto ComponentArray::delete_all() -> void {
+  for (auto i = std::size_t{}; i < count; ++i) {
+    destructor(array.data() + i * each_size);
   }
 }
 
