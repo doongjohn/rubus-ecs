@@ -4,10 +4,9 @@
 #include <iostream>
 
 // TODO
-// - modify after iteration
-// - bulk modification
-// - archetype cache
 // - component toggle
+// - archetype cache
+// - bulk modification
 #include <rubus-ecs/ecs.hpp>
 
 struct Position {
@@ -28,9 +27,13 @@ auto main() -> int {
   auto arch_storage = ruecs::ArchetypeStorage{};
 
   std::cout << "creating entities\n";
+  {
+    auto entity = arch_storage.create_entity();
+    entity.add_component<Position>(3.f, 3.f);
+  }
   for (auto i = 1; i <= 4; ++i) {
-    auto entity = arch_storage.new_entity();
-    entity.add_component<Position>(10.f, 20.f);
+    auto entity = arch_storage.create_entity();
+    entity.add_component<Position>(2.f, 2.f);
     entity.add_component<Velocity>(1.f, 1.f);
     if (i % 3 == 0) {
       entity.remove_component<Velocity>();
@@ -49,25 +52,35 @@ auto main() -> int {
   auto start = std::chrono::high_resolution_clock::now();
 
   for_each_entities(&arch_storage, query_pos) {
-    auto pos = arch->get_component<Position>(entity);
+    auto pos = entity.get_component<Position>();
+    if (pos->x != 3.f) {
+      entity.remove_component<Position>();
+    }
     std::cout << std::format("{},{}\n", pos->x, pos->y);
+
+    auto new_entity = arch_storage.command.create_entity();
+    new_entity.add_component<Position>(10.f, 10.f);
+    new_entity.add_component<Velocity>(20.f, 20.f);
   }
 
+  std::cout << "command flush\n";
+  arch_storage.command.flush();
+
   for_each_entities(&arch_storage, query_movable) {
-    auto pos = arch->get_component<Position>(entity);
-    auto vel = arch->get_component<Velocity>(entity);
+    auto pos = entity.get_component<Position>();
+    auto vel = entity.get_component<Velocity>();
     pos->x += vel->x;
     pos->y += vel->y;
     std::cout << std::format("{},{} {},{}\n", pos->x, pos->y, vel->x, vel->y);
   }
 
   for_each_entities(&arch_storage, query_pos) {
-    auto pos = arch->get_component<Position>(entity);
+    auto pos = entity.get_component<Position>();
     std::cout << std::format("{},{}\n", pos->x, pos->y);
   }
 
   for_each_entities(&arch_storage, query_player) {
-    auto player = arch->get_component<Player>(entity);
+    auto player = entity.get_component<Player>();
     std::cout << std::format("{}\n", player->name);
   }
 

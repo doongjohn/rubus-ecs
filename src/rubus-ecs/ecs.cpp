@@ -8,33 +8,41 @@ ComponentArray::ComponentArray(ComponentId id, std::size_t each_size, void (*des
 [[nodiscard]] auto ComponentArray::get_last() -> std::span<uint8_t> {
   assert(count != 0);
 
-  return {array.data() + (count - 1) * each_size, each_size};
+  if (each_size == 0) {
+    return array;
+  } else {
+    return {array.data() + (count - 1) * each_size, each_size};
+  }
 }
 
 [[nodiscard]] auto ComponentArray::get_at(EntityIndex index) -> std::span<uint8_t> {
-  assert(each_size != 0);
   assert(index.i < count);
 
-  return {array.data() + index.i * each_size, each_size};
+  if (each_size == 0) {
+    return array;
+  } else {
+    return {array.data() + index.i * each_size, each_size};
+  }
 }
 
 auto ComponentArray::set_at(EntityIndex index, std::span<uint8_t> value) -> void {
-  assert(each_size != 0);
   assert(index.i < count);
 
-  std::memcpy(array.data() + index.i * each_size, value.data(), each_size);
+  if (each_size != 0) {
+    std::memcpy(array.data() + index.i * each_size, value.data(), each_size);
+  }
 }
 
 auto ComponentArray::take_out_at(EntityIndex index) -> void {
   assert(index.i < count);
 
   if (each_size != 0) {
-    count -= 1;
-    if (index.i < count) {
-      set_at(index, get_at(EntityIndex{count}));
+    if (index.i < count - 1) {
+      set_at(index, get_last());
     }
-    array.resize(array.size() - each_size);
   }
+  count -= 1;
+  array.resize(array.size() - each_size);
 }
 
 auto ComponentArray::delete_at(EntityIndex index) -> void {
@@ -56,9 +64,175 @@ auto ComponentInfo::operator<=>(const ComponentInfo &other) const -> std::strong
   return id <=> other.id;
 }
 
-Archetype::Archetype(ArchetypeId id) : id{id} {}
+auto Command::create_entity() -> PendingEntity {
+  // command type
+  auto i = buf.size();
+  buf.resize(buf.size() + sizeof(CommandType));
+  new (&buf[i]) CommandType{CreateEntity};
 
-Archetype::Archetype(ArchetypeId id, const ComponentInfo &info) : id{id} {
+  return PendingEntity{arch_storage->create_entity()};
+}
+
+auto Command::delete_entity(Entity entity) -> void {
+  // command type
+  auto i = buf.size();
+  buf.resize(buf.size() + sizeof(CommandType));
+  new (&buf[i]) CommandType{DeleteEntity};
+
+  // entity
+  i = buf.size();
+  buf.resize(buf.size() + sizeof(Entity));
+  std::memcpy(&buf[i], &entity, sizeof(Entity));
+}
+
+auto Command::delete_entity(PendingEntity entity) -> void {
+  delete_entity(entity.entity);
+}
+
+auto Command::flush() -> void {
+  for (auto i = std::size_t{}; i < buf.size();) {
+    const auto cmd = *reinterpret_cast<CommandType *>(&buf[i]);
+    i += sizeof(CommandType);
+
+    switch (cmd) {
+    case CommandType::CreateEntity:
+      break;
+    case CommandType::DeleteEntity: {
+      arch_storage->delete_entity(*reinterpret_cast<Entity *>(&buf[i]));
+      i += sizeof(Entity);
+    } break;
+    case CommandType::AddComponent: {
+      const auto entity = *reinterpret_cast<Entity *>(&buf[i]);
+      i += sizeof(Entity);
+      const auto component_id = ComponentId{*reinterpret_cast<std::size_t *>(&buf[i])};
+      i += sizeof(std::size_t);
+      const auto destructor = reinterpret_cast<void (*)(void *)>(&buf[i]);
+      i += sizeof(std::size_t);
+      const auto component_size = *reinterpret_cast<std::size_t *>(&buf[i]);
+      i += sizeof(std::size_t);
+      const auto component_ptr = &buf[i];
+
+      auto &entity_loc = arch_storage->entity_locations.at(entity);
+      auto entity_arch = entity_loc.arch;
+      auto entity_index = entity_loc.index;
+
+      // check if the entity has this component
+      if (not entity_arch->has_component(component_id)) {
+        auto it = std::ranges::find_if(entity_arch->component_ids, [=](ComponentId id) {
+          return id > component_id;
+        });
+        const auto insert_index = static_cast<std::size_t>(it - entity_arch->component_ids.begin());
+
+        // setup component infos
+        auto component_infos = std::vector<ComponentInfo>(entity_arch->components.size() + 1);
+        for (auto i = std::size_t{}, x = std::size_t{}; i < entity_arch->components.size() + 1; ++i) {
+          if (i == insert_index) {
+            x = 1;
+            component_infos[i] = {component_id, component_size, destructor};
+          } else {
+            component_infos[i] = entity_arch->components[i - x].to_component_info();
+          }
+        }
+
+        // get new arch
+        const auto new_arch_id = ArchetypeStorage::get_archetype_id(component_infos);
+        arch_storage->archetypes.try_emplace(new_arch_id, new_arch_id, arch_storage, component_infos);
+        arch_storage->component_locations.try_emplace(component_id);
+
+        auto new_arch = &arch_storage->archetypes.at(new_arch_id);
+        auto new_entity_index = new_arch->add_entity(entity);
+
+        for (auto i = std::size_t{}, x = std::size_t{}; i < new_arch->components.size(); ++i) {
+          auto ptr = new_arch->components[i].get_last().data();
+          if (i == insert_index) {
+            x = 1;
+            // construct new component
+            std::memcpy(ptr, component_ptr, component_size);
+            arch_storage->component_locations.at(component_id).try_emplace(new_arch->id, new_arch, i);
+          } else {
+            // copy components
+            std::memcpy(ptr, entity_arch->components[i - x].get_at(entity_index).data(),
+                        entity_arch->components[i - x].each_size);
+            arch_storage->component_locations.at(entity_arch->components[i - x].id)
+              .try_emplace(new_arch->id, new_arch, i);
+          }
+        }
+
+        // take out entity from the old arch
+        entity_arch->take_out_entity(entity_index);
+
+        // update entity location
+        entity_loc.arch = new_arch;
+        entity_loc.index = new_entity_index;
+      } else {
+        destructor(component_ptr);
+      }
+      i += component_size;
+    } break;
+    case CommandType::RemoveComponent: {
+      const auto entity = *reinterpret_cast<Entity *>(&buf[i]);
+      i += sizeof(Entity);
+      const auto component_id = ComponentId{*reinterpret_cast<std::size_t *>(&buf[i])};
+      i += sizeof(std::size_t);
+
+      auto &entity_loc = arch_storage->entity_locations.at(entity);
+      auto entity_arch = entity_loc.arch;
+      auto entity_index = entity_loc.index;
+
+      // check if the entity has this component
+      if (entity_arch->has_component(component_id)) {
+        const auto it = std::ranges::find_if(entity_arch->component_ids, [=](ComponentId id) {
+          return id == component_id;
+        });
+        const auto remove_index = static_cast<std::size_t>(it - entity_arch->component_ids.begin());
+
+        // new component infos
+        auto component_infos = std::vector<ComponentInfo>(entity_arch->components.size() - 1);
+        for (auto i = std::size_t{}, x = std::size_t{}; i < component_infos.size(); ++i) {
+          if (i == remove_index) {
+            x = 1;
+          }
+          component_infos[i] = entity_arch->components[i + x].to_component_info();
+        }
+
+        // get new arch
+        const auto new_arch_id = arch_storage->get_archetype_id(component_infos);
+        arch_storage->archetypes.try_emplace(new_arch_id, new_arch_id, arch_storage, component_infos);
+
+        auto new_arch = &arch_storage->archetypes.at(new_arch_id);
+        auto new_entity_index = new_arch->add_entity(entity);
+
+        for (auto i = std::size_t{}, x = std::size_t{}; i < entity_arch->components.size(); ++i) {
+          if (i == remove_index) {
+            x = 1;
+            // delete removed component
+            entity_arch->components[i].destructor(entity_arch->components[i].get_at(entity_index).data());
+          } else {
+            // copy components
+            auto ptr = new_arch->components[i - x].get_last().data();
+            std::memcpy(ptr, entity_arch->components[i].get_at(entity_index).data(),
+                        entity_arch->components[i].each_size);
+            arch_storage->component_locations.at(entity_arch->components[i].id)
+              .try_emplace(new_arch->id, new_arch, i - x);
+          }
+        }
+
+        // take out entity from the old arch
+        entity_arch->take_out_entity(entity_index);
+
+        // update entity location
+        entity_loc.arch = new_arch;
+        entity_loc.index = new_entity_index;
+      }
+    } break;
+    }
+  }
+}
+
+Archetype::Archetype(ArchetypeId id, ArchetypeStorage *arch_storage) : id{id}, arch_storage{arch_storage} {}
+
+Archetype::Archetype(ArchetypeId id, ArchetypeStorage *arch_storage, const ComponentInfo &info)
+    : id{id}, arch_storage{arch_storage} {
   component_ids.resize(1);
   component_ids[0] = info.id;
 
@@ -68,7 +242,8 @@ Archetype::Archetype(ArchetypeId id, const ComponentInfo &info) : id{id} {
   components[0].destructor = info.destructor;
 }
 
-Archetype::Archetype(ArchetypeId id, std::span<ComponentInfo> infos) : id{id} {
+Archetype::Archetype(ArchetypeId id, ArchetypeStorage *arch_storage, std::span<ComponentInfo> infos)
+    : id{id}, arch_storage{arch_storage} {
   component_ids.resize(infos.size());
   for (auto i = std::size_t{}; i < infos.size(); ++i) {
     component_ids[i] = infos[i].id;
@@ -133,13 +308,9 @@ auto Archetype::delete_all_components() -> void {
   return true;
 }
 
-auto Archetype::new_entity(ArchetypeStorage *arch_storage) -> Entity {
-  auto entity = Entity{
-    .arch_storage = arch_storage,
-    .id = {++Entity::id_gen},
-    .arch_id = id,
-    .index = {entities.size()},
-  };
+auto Archetype::add_entity(Entity entity) -> EntityIndex {
+  assert(arch_storage->entity_locations.at(entity).arch != this);
+
   entities.push_back(entity);
 
   for (auto &component_array : components) {
@@ -147,50 +318,39 @@ auto Archetype::new_entity(ArchetypeStorage *arch_storage) -> Entity {
     component_array.array.resize(component_array.array.size() + component_array.each_size);
   }
 
-  return entity;
+  return {entities.size() - 1};
 }
 
-auto Archetype::add_entity(Entity entity) -> Entity {
-  entity.arch_id = id;
-  entity.index.i = entities.size();
-  entities.push_back(entity);
+auto Archetype::take_out_entity(EntityIndex index) -> void {
+  assert(not entities.empty());
 
-  for (auto &component_array : components) {
-    if (component_array.each_size != 0) {
-      component_array.count += 1;
-      component_array.array.resize(component_array.array.size() + component_array.each_size);
-    }
+  if (index.i < entities.size() - 1) {
+    entities[index.i] = entities.back();
+    arch_storage->entity_locations.at(entities[index.i]).index = index;
   }
-
-  return entity;
-}
-
-auto Archetype::take_out_entity(Entity entity) -> void {
-  assert(entity.arch_id == id);
-  assert(entity.index.i < entities.size());
-
-  entities[entity.index.i] = entities.back();
   entities.pop_back();
 
   for (auto &component_array : components) {
-    component_array.take_out_at(entity.index);
+    component_array.take_out_at(index);
   }
 }
 
-auto Archetype::delete_entity(Entity entity) -> void {
-  assert(entity.arch_id == id);
-  assert(entity.index.i < entities.size());
+auto Archetype::delete_entity(EntityIndex index) -> void {
+  assert(not entities.empty());
 
-  entities[entity.index.i] = entities.back();
+  if (index.i < entities.size() - 1) {
+    entities[index.i] = entities.back();
+    arch_storage->entity_locations.at(entities[index.i]).index = index;
+  }
   entities.pop_back();
 
   for (auto &component_array : components) {
-    component_array.delete_at(entity.index);
+    component_array.delete_at(index);
   }
 }
 
-ArchetypeStorage::ArchetypeStorage() {
-  archetypes.emplace(0, Archetype{ArchetypeId{0}});
+ArchetypeStorage::ArchetypeStorage() : command{this, {}} {
+  archetypes.emplace(0, Archetype{ArchetypeId{0}, this});
 }
 
 ArchetypeStorage::~ArchetypeStorage() {
@@ -199,53 +359,75 @@ ArchetypeStorage::~ArchetypeStorage() {
   }
 }
 
-auto ArchetypeStorage::get_archetype_id(std::span<ComponentInfo> s) -> ArchetypeId {
+auto ArchetypeStorage::get_archetype_id(std::span<ComponentInfo> infos) -> ArchetypeId {
   // TODO: find a better way to hash multiple integers
   // https://stackoverflow.com/a/72073933
-  auto hash = s.size();
-  for (const auto &component_info : s) {
-    auto x = component_info.id.id;
+  auto hash = infos.size();
+  for (const auto &info : infos) {
+    auto x = info.id.value;
     x = ((x >> 32) ^ x) * 0x45d9f3b;
     x = ((x >> 32) ^ x) * 0x45d9f3b;
     x = (x >> 32) ^ x;
     hash ^= x + 0x9e3779b9 + (hash << 6) + (hash >> 2);
   }
-  return ArchetypeId{hash};
+  return {hash};
 }
 
-[[nodiscard]] auto ArchetypeStorage::new_entity() -> Entity {
-  return archetypes.at({0}).new_entity(this);
+[[nodiscard]] auto ArchetypeStorage::create_entity() -> Entity {
+  auto arch = &archetypes.at({0});
+  auto entity = Entity{
+    .id = {++Entity::id_gen},
+    .arch_storage = this,
+  };
+  entity_locations.try_emplace(entity, arch, EntityIndex{arch->entities.size()});
+  arch->entities.push_back(entity);
+  return entity;
 }
 
 auto ArchetypeStorage::delete_entity(Entity entity) -> void {
-  archetypes.at(entity.arch_id).delete_entity(entity);
+  auto entity_loc = entity_locations.at(entity);
+  auto entity_arch = entity_loc.arch;
+  auto entity_index = entity_loc.index;
+  entity_arch->delete_entity(entity_index);
+  entity_locations.erase(entity);
 }
 
 Query::Query() : it{null_it} {}
 
-auto Query::refresh(ArchetypeStorage *arch_storage) -> void {
+auto Query::reset(ArchetypeStorage *arch_storage) -> void {
+  // TODO: optimize
   if (includes.empty()) {
     archs = {};
   } else {
-    archs = arch_storage->archs_of_component.at(includes[0]);
-    for (auto i = std::size_t{1}; i < includes.size(); ++i) {
-      unorderd_set_intersection(archs, arch_storage->archs_of_component.at(includes[i]));
+    auto &component_locations = arch_storage->component_locations;
+    for (auto i = std::size_t{0}; i < includes.size(); ++i) {
+      if (not component_locations.contains(includes[i])) {
+        archs = {};
+        break;
+      }
+      if (i == 0) {
+        archs = component_locations.at(includes[0]);
+      } else {
+        unorderd_map_intersection(archs, component_locations.at(includes[i]));
+      }
     }
     for (auto i = std::size_t{0}; i < excludes.size(); ++i) {
-      unorderd_set_exclude(archs, arch_storage->archs_of_component.at(excludes[i]));
+      if (component_locations.contains(excludes[i])) {
+        unorderd_map_exclude(archs, component_locations.at(excludes[i]));
+      }
     }
   }
   it = archs.begin();
 }
 
-auto Query::get_next_entity(ArchetypeStorage *arch_storage) -> std::tuple<Archetype *, Entity> {
+auto Query::get_next_entity() -> std::tuple<Archetype *, ReadOnlyEntity> {
   while (it != archs.end()) {
-    auto arch = &arch_storage->archetypes.at(*it);
+    auto arch = (*it).second.arch;
     if (index == arch->entities.size()) {
       it = std::next(it);
       index = 0;
     } else {
-      return {arch, arch->entities[index++]};
+      return {arch, {arch->entities[index++]}};
     }
   }
 
