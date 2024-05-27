@@ -183,13 +183,12 @@ auto Command::run() -> void {
             x = 1;
             // construct new component
             std::memcpy(ptr, component_ptr, component_size);
-            arch_storage->component_locations.at(component_id).try_emplace(new_arch->id, new_arch, i);
+            arch_storage->component_locations.at(component_id).try_emplace(new_arch, i);
           } else {
             // copy components
             std::memcpy(ptr, entity_arch->components[i - x].get_at(entity_index).data(),
                         entity_arch->components[i - x].each_size);
-            arch_storage->component_locations.at(entity_arch->components[i - x].id)
-              .try_emplace(new_arch->id, new_arch, i);
+            arch_storage->component_locations.at(entity_arch->components[i - x].id).try_emplace(new_arch, i);
           }
         }
 
@@ -249,8 +248,7 @@ auto Command::run() -> void {
             auto ptr = new_arch->components[i - x].get_last().data();
             std::memcpy(ptr, entity_arch->components[i].get_at(entity_index).data(),
                         entity_arch->components[i].each_size);
-            arch_storage->component_locations.at(entity_arch->components[i].id)
-              .try_emplace(new_arch->id, new_arch, i - x);
+            arch_storage->component_locations.at(entity_arch->components[i].id).try_emplace(new_arch, i - x);
           }
         }
 
@@ -507,7 +505,7 @@ auto Query::reset(ArchetypeStorage *arch_storage) -> void {
 
 auto Query::get_next_entity(Command *command) -> std::tuple<Archetype *, ReadOnlyEntity> {
   while (it != archs.end()) {
-    auto arch = (*it).second.arch;
+    auto arch = (*it).first;
     if (index == arch->entities.size()) {
       it = std::next(it);
       index = 0;

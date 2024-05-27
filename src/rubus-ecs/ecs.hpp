@@ -237,7 +237,7 @@ struct ComponentLocation {
   std::size_t index = 0;
 };
 
-using ComponentMap = std::unordered_map<ArchetypeId, ComponentLocation>;
+using ComponentMap = std::unordered_map<Archetype *, std::size_t>;
 
 struct ArchetypeStorage {
   std::unordered_map<ArchetypeId, Archetype> archetypes;
@@ -298,12 +298,12 @@ struct ArchetypeStorage {
         x = 1;
         // construct new component
         new (ptr) T{args...};
-        component_locations.at(component_id).try_emplace(new_arch->id, new_arch, i);
+        component_locations.at(component_id).try_emplace(new_arch, i);
       } else {
         // copy components
         std::memcpy(ptr, entity_arch->components[i - x].get_at(entity_index).data(),
                     entity_arch->components[i - x].each_size);
-        component_locations.at(entity_arch->components[i - x].id).try_emplace(new_arch->id, new_arch, i);
+        component_locations.at(entity_arch->components[i - x].id).try_emplace(new_arch, i);
       }
     }
 
@@ -357,7 +357,7 @@ struct ArchetypeStorage {
         // copy components
         auto ptr = new_arch->components[i - x].get_last().data();
         std::memcpy(ptr, entity_arch->components[i].get_at(entity_index).data(), entity_arch->components[i].each_size);
-        component_locations.at(entity_arch->components[i].id).try_emplace(new_arch->id, new_arch, i - x);
+        component_locations.at(entity_arch->components[i].id).try_emplace(new_arch, i - x);
       }
     }
 
@@ -376,9 +376,9 @@ template <typename T>
   auto entity_arch = entity_loc.arch;
 
   auto component_loc = arch_storage->component_locations.at({typeid(T).hash_code()});
-  assert(component_loc.contains(entity_arch->id));
+  assert(component_loc.contains(entity_arch));
 
-  auto &component_array = entity_arch->components[component_loc.at(entity_arch->id).index];
+  auto &component_array = entity_arch->components[component_loc.at(entity_arch)];
   return reinterpret_cast<T *>(&component_array.array[entity_loc.index.i * component_array.each_size]);
 }
 
