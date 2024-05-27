@@ -86,7 +86,7 @@ auto Command::delete_entity(ReadOnlyEntity entity) -> void {
   // entity
   i = buf.size();
   buf.resize(buf.size() + sizeof(Entity));
-  std::memcpy(&buf[i], &entity.entity, sizeof(Entity));
+  std::memcpy(&buf[i], &(entity.entity), sizeof(Entity));
 }
 
 auto Command::delete_entity(PendingEntity entity) -> void {
@@ -98,7 +98,7 @@ auto Command::delete_entity(PendingEntity entity) -> void {
   // entity
   i = buf.size();
   buf.resize(buf.size() + sizeof(Entity));
-  std::memcpy(&buf[i], &entity.entity, sizeof(Entity));
+  std::memcpy(&buf[i], &(entity.entity), sizeof(Entity));
 }
 
 auto Command::run() -> void {
