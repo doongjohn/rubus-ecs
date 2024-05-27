@@ -122,7 +122,10 @@ auto Command::run() -> void {
       std::memcpy(&entity, &buf[i], sizeof(Entity));
       i += sizeof(Entity);
 
-      arch_storage->delete_entity(entity);
+      // NOTE: There can be multiple delete commands for the same entity.
+      if (arch_storage->entity_locations.contains(entity)) {
+        arch_storage->delete_entity(entity);
+      }
     } break;
     case CommandType::AddComponent: {
       Entity entity;
