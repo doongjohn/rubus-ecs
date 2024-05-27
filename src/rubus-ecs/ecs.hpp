@@ -130,6 +130,8 @@ struct Command {
   ArchetypeStorage *arch_storage = nullptr;
   std::vector<uint8_t> buf;
 
+  ~Command();
+
   [[nodiscard]] auto create_entity() -> struct PendingEntity;
   auto delete_entity(Entity entity) -> void;
   auto delete_entity(PendingEntity entity) -> void;
@@ -188,7 +190,8 @@ struct Command {
     new (&buf[i]) std::size_t{typeid(T).hash_code()};
   }
 
-  auto flush() -> void;
+  auto run() -> void;
+  auto discard() -> void;
 };
 
 struct Archetype {

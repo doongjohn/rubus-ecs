@@ -63,8 +63,8 @@ auto main() -> int {
     new_entity.add_component<Velocity>(20.f, 20.f);
   }
 
-  std::cout << "command flush\n";
-  arch_storage.command.flush();
+  std::cout << "command run\n";
+  arch_storage.command.run();
 
   for_each_entities(&arch_storage, query_movable) {
     auto pos = entity.get_component<Position>();

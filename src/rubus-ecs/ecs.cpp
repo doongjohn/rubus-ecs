@@ -64,6 +64,10 @@ auto ComponentInfo::operator<=>(const ComponentInfo &other) const -> std::strong
   return id <=> other.id;
 }
 
+Command::~Command() {
+  discard();
+}
+
 auto Command::create_entity() -> PendingEntity {
   // command type
   auto i = buf.size();
@@ -89,7 +93,7 @@ auto Command::delete_entity(PendingEntity entity) -> void {
   delete_entity(entity.entity);
 }
 
-auto Command::flush() -> void {
+auto Command::run() -> void {
   for (auto i = std::size_t{}; i < buf.size();) {
     const auto cmd = *reinterpret_cast<CommandType *>(&buf[i]);
     i += sizeof(CommandType);
@@ -227,6 +231,43 @@ auto Command::flush() -> void {
     } break;
     }
   }
+  buf.clear();
+}
+
+auto Command::discard() -> void {
+  for (auto i = std::size_t{}; i < buf.size();) {
+    const auto cmd = *reinterpret_cast<CommandType *>(&buf[i]);
+    i += sizeof(CommandType);
+
+    switch (cmd) {
+    case CommandType::CreateEntity:
+      break;
+    case CommandType::DeleteEntity: {
+      i += sizeof(Entity);
+    } break;
+    case CommandType::AddComponent: {
+      // const auto entity = *reinterpret_cast<Entity *>(&buf[i]);
+      i += sizeof(Entity);
+      // const auto component_id = ComponentId{*reinterpret_cast<std::size_t *>(&buf[i])};
+      i += sizeof(std::size_t);
+      const auto destructor = reinterpret_cast<void (*)(void *)>(&buf[i]);
+      i += sizeof(std::size_t);
+      const auto component_size = *reinterpret_cast<std::size_t *>(&buf[i]);
+      i += sizeof(std::size_t);
+      const auto component_ptr = &buf[i];
+      i += component_size;
+
+      destructor(component_ptr);
+    } break;
+    case CommandType::RemoveComponent: {
+      // const auto entity = *reinterpret_cast<Entity *>(&buf[i]);
+      i += sizeof(Entity);
+      // const auto component_id = ComponentId{*reinterpret_cast<std::size_t *>(&buf[i])};
+      i += sizeof(std::size_t);
+    } break;
+    }
+  }
+  buf.clear();
 }
 
 Archetype::Archetype(ArchetypeId id, ArchetypeStorage *arch_storage) : id{id}, arch_storage{arch_storage} {}
