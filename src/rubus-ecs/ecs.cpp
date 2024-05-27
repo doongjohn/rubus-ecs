@@ -330,7 +330,12 @@ Archetype::Archetype(ArchetypeId id, ArchetypeStorage *arch_storage, std::span<C
   }
 }
 
-auto Archetype::delete_all_components() -> void {
+auto Archetype::delete_all_entities() -> void {
+  for (auto entity : entities) {
+    arch_storage->entity_locations.erase(entity);
+  }
+  entities.clear();
+
   for (auto &component_array : components) {
     component_array.delete_all();
   }
@@ -432,7 +437,7 @@ ArchetypeStorage::~ArchetypeStorage() {
 
 auto ArchetypeStorage::delete_all_archetypes() -> void {
   for (auto &[_, arch] : archetypes) {
-    arch.delete_all_components();
+    arch.delete_all_entities();
   }
 }
 

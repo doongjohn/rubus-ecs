@@ -216,7 +216,7 @@ struct Archetype {
   Archetype(ArchetypeId id, ArchetypeStorage *arch_storage, const ComponentInfo &info);
   Archetype(ArchetypeId id, ArchetypeStorage *arch_storage, std::span<ComponentInfo> infos);
 
-  auto delete_all_components() -> void;
+  auto delete_all_entities() -> void;
 
   [[nodiscard]] auto has_component(ComponentId id) -> bool;
   [[nodiscard]] auto has_components(std::span<ComponentId> ids) -> bool;
