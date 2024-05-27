@@ -126,14 +126,17 @@ enum CommandType : std::size_t {
   RemoveComponent,
 };
 
+struct ReadOnlyEntity;
+struct PendingEntity;
+
 struct Command {
   ArchetypeStorage *arch_storage = nullptr;
   std::vector<uint8_t> buf;
 
   ~Command();
 
-  [[nodiscard]] auto create_entity() -> struct PendingEntity;
-  auto delete_entity(Entity entity) -> void;
+  [[nodiscard]] auto create_entity() -> PendingEntity;
+  auto delete_entity(ReadOnlyEntity entity) -> void;
   auto delete_entity(PendingEntity entity) -> void;
 
   template <typename T, typename... Args>

@@ -77,7 +77,7 @@ auto Command::create_entity() -> PendingEntity {
   return PendingEntity{arch_storage->create_entity()};
 }
 
-auto Command::delete_entity(Entity entity) -> void {
+auto Command::delete_entity(ReadOnlyEntity entity) -> void {
   // command type
   auto i = buf.size();
   buf.resize(buf.size() + sizeof(CommandType));
@@ -90,7 +90,15 @@ auto Command::delete_entity(Entity entity) -> void {
 }
 
 auto Command::delete_entity(PendingEntity entity) -> void {
-  delete_entity(entity.entity);
+  // command type
+  auto i = buf.size();
+  buf.resize(buf.size() + sizeof(CommandType));
+  new (&buf[i]) CommandType{DeleteEntity};
+
+  // entity
+  i = buf.size();
+  buf.resize(buf.size() + sizeof(Entity));
+  std::memcpy(&buf[i], &entity, sizeof(Entity));
 }
 
 auto Command::run() -> void {
