@@ -87,7 +87,7 @@ namespace ruecs {
 struct ComponentInfo {
   ComponentId id;
   std::size_t size = 0;
-  void (*destructor)(void *component) = nullptr;
+  void (*fn_destructor)(void *component) = nullptr;
 
   auto operator<=>(const ComponentInfo &other) const -> std::strong_ordering;
 };
@@ -96,17 +96,17 @@ struct ComponentArray {
   ComponentId id;
   std::size_t each_size = 0;
   std::size_t count = 0;
-  void (*destructor)(void *component) = nullptr;
+  void (*fn_destructor)(void *component) = nullptr;
   std::vector<uint8_t> array;
 
   ComponentArray() = default;
-  ComponentArray(ComponentId id, std::size_t each_size, void (*destructor)(void *component));
+  ComponentArray(ComponentId id, std::size_t each_size, void (*fn_destructor)(void *component));
 
   [[nodiscard]] inline auto to_component_info() -> ComponentInfo {
     return {
       .id = id,
       .size = each_size,
-      .destructor = destructor,
+      .fn_destructor = fn_destructor,
     };
   }
 
@@ -161,11 +161,11 @@ struct Command {
 
     // destructor
     i = buf.size();
-    void (*destructor)(void *) = [](void *component) {
+    void (*fn_destructor)(void *) = [](void *component) {
       static_cast<T *>(component)->~T();
     };
     buf.resize(buf.size() + sizeof(std::size_t));
-    std::memcpy(&buf[i], &destructor, sizeof(std::size_t));
+    std::memcpy(&buf[i], &fn_destructor, sizeof(std::size_t));
 
     // component size
     i = buf.size();
@@ -352,7 +352,7 @@ struct ArchetypeStorage {
       if (i == remove_index) {
         x = 1;
         // delete removed component
-        entity_arch->components[i].destructor(entity_arch->components[i].get_at(entity_index).data());
+        entity_arch->components[i].fn_destructor(entity_arch->components[i].get_at(entity_index).data());
       } else {
         // copy components
         auto ptr = new_arch->components[i - x].get_last().data();
@@ -434,10 +434,7 @@ struct Query {
 
   ComponentMap archs;
   ComponentMap::iterator it;
-  static inline ComponentMap::iterator null_it;
   std::size_t index = 0;
-
-  Query();
 
   template <typename Map, typename Key = typename Map::key_type>
   static inline auto unorderd_map_intersection(Map &s, const Map &other) -> void {

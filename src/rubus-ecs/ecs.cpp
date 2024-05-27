@@ -2,8 +2,8 @@
 
 namespace ruecs {
 
-ComponentArray::ComponentArray(ComponentId id, std::size_t each_size, void (*destructor)(void *))
-    : id{id}, each_size{each_size}, destructor{destructor} {}
+ComponentArray::ComponentArray(ComponentId id, std::size_t each_size, void (*fn_destructor)(void *))
+    : id{id}, each_size{each_size}, fn_destructor{fn_destructor} {}
 
 [[nodiscard]] auto ComponentArray::get_last() -> std::span<uint8_t> {
   assert(count != 0);
@@ -49,14 +49,14 @@ auto ComponentArray::delete_at(EntityIndex index) -> void {
   assert(index.i < count);
 
   if (each_size != 0) {
-    destructor(array.data() + index.i * each_size);
+    fn_destructor(array.data() + index.i * each_size);
   }
   take_out_at(index);
 }
 
 auto ComponentArray::delete_all() -> void {
   for (auto i = std::size_t{}; i < count; ++i) {
-    destructor(array.data() + i * each_size);
+    fn_destructor(array.data() + i * each_size);
   }
   count = 0;
   array.clear();
@@ -136,8 +136,8 @@ auto Command::run() -> void {
       std::memcpy(&(component_id.value), &buf[i], sizeof(std::size_t));
       i += sizeof(std::size_t);
 
-      void (*destructor)(void *);
-      std::memcpy(&destructor, &buf[i], sizeof(std::size_t));
+      void (*fn_destructor)(void *);
+      std::memcpy(&fn_destructor, &buf[i], sizeof(std::size_t));
       i += sizeof(std::size_t);
 
       std::size_t component_size;
@@ -163,7 +163,7 @@ auto Command::run() -> void {
         for (auto i = std::size_t{}, x = std::size_t{}; i < entity_arch->components.size() + 1; ++i) {
           if (i == insert_index) {
             x = 1;
-            component_infos[i] = {component_id, component_size, destructor};
+            component_infos[i] = {component_id, component_size, fn_destructor};
           } else {
             component_infos[i] = entity_arch->components[i - x].to_component_info();
           }
@@ -199,7 +199,7 @@ auto Command::run() -> void {
         entity_loc.arch = new_arch;
         entity_loc.index = new_entity_index;
       } else {
-        destructor(component_ptr);
+        fn_destructor(component_ptr);
       }
     } break;
     case CommandType::RemoveComponent: {
@@ -242,7 +242,7 @@ auto Command::run() -> void {
           if (i == remove_index) {
             x = 1;
             // delete removed component
-            entity_arch->components[i].destructor(entity_arch->components[i].get_at(entity_index).data());
+            entity_arch->components[i].fn_destructor(entity_arch->components[i].get_at(entity_index).data());
           } else {
             // copy components
             auto ptr = new_arch->components[i - x].get_last().data();
@@ -281,8 +281,8 @@ auto Command::discard() -> void {
       i += sizeof(Entity);      // entity
       i += sizeof(std::size_t); // ComponentId
 
-      void (*destructor)(void *);
-      std::memcpy(&destructor, &buf[i], sizeof(std::size_t));
+      void (*fn_destructor)(void *);
+      std::memcpy(&fn_destructor, &buf[i], sizeof(std::size_t));
       i += sizeof(std::size_t);
 
       std::size_t component_size;
@@ -292,7 +292,7 @@ auto Command::discard() -> void {
       const auto component_ptr = &buf[i];
       i += component_size;
 
-      destructor(component_ptr);
+      fn_destructor(component_ptr);
     } break;
     case CommandType::RemoveComponent: {
       i += sizeof(Entity);      // entity
@@ -313,7 +313,7 @@ Archetype::Archetype(ArchetypeId id, ArchetypeStorage *arch_storage, const Compo
   components.resize(1);
   components[0].id = info.id;
   components[0].each_size = info.size;
-  components[0].destructor = info.destructor;
+  components[0].fn_destructor = info.fn_destructor;
 }
 
 Archetype::Archetype(ArchetypeId id, ArchetypeStorage *arch_storage, std::span<ComponentInfo> infos)
@@ -327,7 +327,7 @@ Archetype::Archetype(ArchetypeId id, ArchetypeStorage *arch_storage, std::span<C
   for (auto i = std::size_t{}; i < infos.size(); ++i) {
     components[i].id = infos[i].id;
     components[i].each_size = infos[i].size;
-    components[i].destructor = infos[i].destructor;
+    components[i].fn_destructor = infos[i].fn_destructor;
   }
 }
 
@@ -475,8 +475,6 @@ auto ArchetypeStorage::delete_entity(Entity entity) -> void {
   entity_locations.erase(entity);
 }
 
-Query::Query() : it{null_it} {}
-
 auto Query::reset(ArchetypeStorage *arch_storage) -> void {
   // TODO: optimize
   if (includes.empty()) {
@@ -514,7 +512,6 @@ auto Query::get_next_entity(Command *command) -> std::tuple<Archetype *, ReadOnl
     }
   }
 
-  it = null_it;
   index = 0;
   return {nullptr, {}};
 }
