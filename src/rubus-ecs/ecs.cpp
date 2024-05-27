@@ -64,6 +64,8 @@ auto ComponentInfo::operator<=>(const ComponentInfo &other) const -> std::strong
   return id <=> other.id;
 }
 
+Command::Command(ArchetypeStorage *arch_storage) : arch_storage{arch_storage} {}
+
 Command::~Command() {
   discard();
 }
@@ -75,7 +77,7 @@ auto Command::create_entity() -> PendingEntity {
   buf.resize(buf.size() + sizeof(CommandType));
   std::memcpy(&buf[i], &cmd, sizeof(CommandType));
 
-  return PendingEntity{arch_storage->create_entity()};
+  return PendingEntity{this, arch_storage->create_entity()};
 }
 
 auto Command::delete_entity(ReadOnlyEntity entity) -> void {
@@ -418,11 +420,15 @@ auto Archetype::delete_entity(EntityIndex index) -> void {
   }
 }
 
-ArchetypeStorage::ArchetypeStorage() : command{this, {}} {
+ArchetypeStorage::ArchetypeStorage() {
   archetypes.emplace(0, Archetype{ArchetypeId{0}, this});
 }
 
 ArchetypeStorage::~ArchetypeStorage() {
+  delete_all_archetypes();
+}
+
+auto ArchetypeStorage::delete_all_archetypes() -> void {
   for (auto &[_, arch] : archetypes) {
     arch.delete_all_components();
   }
@@ -489,14 +495,14 @@ auto Query::reset(ArchetypeStorage *arch_storage) -> void {
   it = archs.begin();
 }
 
-auto Query::get_next_entity() -> std::tuple<Archetype *, ReadOnlyEntity> {
+auto Query::get_next_entity(Command *command) -> std::tuple<Archetype *, ReadOnlyEntity> {
   while (it != archs.end()) {
     auto arch = (*it).second.arch;
     if (index == arch->entities.size()) {
       it = std::next(it);
       index = 0;
     } else {
-      return {arch, ReadOnlyEntity{arch->entities[index++]}};
+      return {arch, {command, arch->entities[index++]}};
     }
   }
 

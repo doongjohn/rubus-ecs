@@ -133,6 +133,7 @@ struct Command {
   ArchetypeStorage *arch_storage = nullptr;
   std::vector<uint8_t> buf;
 
+  Command(ArchetypeStorage *arch_storage);
   ~Command();
 
   [[nodiscard]] auto create_entity() -> PendingEntity;
@@ -239,14 +240,14 @@ struct ComponentLocation {
 using ComponentMap = std::unordered_map<ArchetypeId, ComponentLocation>;
 
 struct ArchetypeStorage {
-  Command command;
-
   std::unordered_map<ArchetypeId, Archetype> archetypes;
   std::unordered_map<Entity, EntityLocation> entity_locations;
   std::unordered_map<ComponentId, ComponentMap> component_locations;
 
   ArchetypeStorage();
   ~ArchetypeStorage();
+
+  auto delete_all_archetypes() -> void;
 
   static auto get_archetype_id(std::span<ComponentInfo> s) -> ArchetypeId;
 
@@ -392,6 +393,7 @@ auto Entity::remove_component() -> void {
 }
 
 struct ReadOnlyEntity {
+  Command *command = nullptr;
   Entity entity;
 
   template <typename T>
@@ -402,26 +404,27 @@ struct ReadOnlyEntity {
 
   template <typename T, typename... Args>
   auto add_component(Args &&...args) -> void {
-    entity.arch_storage->command.add_component<T>(entity, args...);
+    command->add_component<T>(entity, args...);
   }
 
   template <typename T>
   auto remove_component() -> void {
-    entity.arch_storage->command.remove_component<T>(entity);
+    command->remove_component<T>(entity);
   }
 };
 
 struct PendingEntity {
+  Command *command = nullptr;
   Entity entity;
 
   template <typename T, typename... Args>
   auto add_component(Args &&...args) -> void {
-    entity.arch_storage->command.add_component<T>(entity, args...);
+    command->add_component<T>(entity, args...);
   }
 
   template <typename T>
   auto remove_component() -> void {
-    entity.arch_storage->command.remove_component<T>(entity);
+    command->remove_component<T>(entity);
   }
 };
 
@@ -470,12 +473,12 @@ struct Query {
   }
 
   auto reset(ArchetypeStorage *arch_storage) -> void;
-  [[nodiscard]] auto get_next_entity() -> std::tuple<Archetype *, ReadOnlyEntity>;
+  [[nodiscard]] auto get_next_entity(Command *command) -> std::tuple<Archetype *, ReadOnlyEntity>;
 };
 
-#define for_each_entities(arch_storage, query) \
+#define for_each_entities(arch_storage, command, query) \
   (query).reset(arch_storage); \
-  for (auto [arch, entity] = (query).get_next_entity(); arch != nullptr; \
-       std::tie(arch, entity) = (query).get_next_entity())
+  for (auto [arch, entity] = (query).get_next_entity(command); arch != nullptr; \
+       std::tie(arch, entity) = (query).get_next_entity(command))
 
 } // namespace ruecs

@@ -25,6 +25,7 @@ struct Player {
 
 auto main() -> int {
   auto arch_storage = ruecs::ArchetypeStorage{};
+  auto command = ruecs::Command{&arch_storage};
 
   std::cout << "creating entities\n";
   {
@@ -51,22 +52,22 @@ auto main() -> int {
   std::cout << "running systems\n";
   auto start = std::chrono::high_resolution_clock::now();
 
-  for_each_entities(&arch_storage, query_pos) {
+  for_each_entities(&arch_storage, &command, query_pos) {
     auto pos = entity.get_component<Position>();
     if (pos->x != 3.f) {
       entity.remove_component<Position>();
     }
     std::cout << std::format("{},{}\n", pos->x, pos->y);
 
-    auto new_entity = arch_storage.command.create_entity();
+    auto new_entity = command.create_entity();
     new_entity.add_component<Position>(10.f, 10.f);
     new_entity.add_component<Velocity>(20.f, 20.f);
   }
 
   std::cout << "command run\n";
-  arch_storage.command.run();
+  command.run();
 
-  for_each_entities(&arch_storage, query_movable) {
+  for_each_entities(&arch_storage, &command, query_movable) {
     auto pos = entity.get_component<Position>();
     auto vel = entity.get_component<Velocity>();
     pos->x += vel->x;
@@ -74,12 +75,12 @@ auto main() -> int {
     std::cout << std::format("{},{} {},{}\n", pos->x, pos->y, vel->x, vel->y);
   }
 
-  for_each_entities(&arch_storage, query_pos) {
+  for_each_entities(&arch_storage, &command, query_pos) {
     auto pos = entity.get_component<Position>();
     std::cout << std::format("{},{}\n", pos->x, pos->y);
   }
 
-  for_each_entities(&arch_storage, query_player) {
+  for_each_entities(&arch_storage, &command, query_player) {
     auto player = entity.get_component<Player>();
     std::cout << std::format("{}\n", player->name);
   }
