@@ -50,14 +50,16 @@ auto ComponentArray::delete_at(EntityIndex index) -> void {
 
   if (each_size != 0) {
     destructor(array.data() + index.i * each_size);
-    take_out_at(index);
   }
+  take_out_at(index);
 }
 
 auto ComponentArray::delete_all() -> void {
   for (auto i = std::size_t{}; i < count; ++i) {
     destructor(array.data() + i * each_size);
   }
+  count = 0;
+  array.clear();
 }
 
 auto ComponentInfo::operator<=>(const ComponentInfo &other) const -> std::strong_ordering {
