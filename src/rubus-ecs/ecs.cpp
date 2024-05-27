@@ -147,6 +147,9 @@ auto Command::run() -> void {
       const auto component_ptr = &buf[i];
       i += component_size;
 
+      // entity must exist
+      assert(arch_storage->entity_locations.contains(entity));
+
       auto &entity_loc = arch_storage->entity_locations.at(entity);
       auto entity_arch = entity_loc.arch;
       auto entity_index = entity_loc.index;
@@ -210,6 +213,9 @@ auto Command::run() -> void {
       auto component_id = ComponentId{};
       std::memcpy(&(component_id.value), &buf[i], sizeof(std::size_t));
       i += sizeof(std::size_t);
+
+      // entity must exist
+      assert(arch_storage->entity_locations.contains(entity));
 
       auto &entity_loc = arch_storage->entity_locations.at(entity);
       auto entity_arch = entity_loc.arch;
