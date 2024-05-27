@@ -143,8 +143,9 @@ struct Command {
   auto add_component(Entity entity, Args &&...args) -> void {
     // command type
     auto i = buf.size();
+    const auto cmd = CommandType::AddComponent;
     buf.resize(buf.size() + sizeof(CommandType));
-    new (&buf[i]) CommandType{AddComponent};
+    std::memcpy(&buf[i], &cmd, sizeof(CommandType));
 
     // entity
     i = buf.size();
@@ -153,34 +154,39 @@ struct Command {
 
     // component id
     i = buf.size();
+    const auto component_id = typeid(T).hash_code();
     buf.resize(buf.size() + sizeof(std::size_t));
-    new (&buf[i]) std::size_t{typeid(T).hash_code()};
+    std::memcpy(&buf[i], &component_id, sizeof(std::size_t));
 
     // destructor
     i = buf.size();
-    buf.resize(buf.size() + sizeof(std::size_t));
     void (*destructor)(void *) = [](void *component) {
       static_cast<T *>(component)->~T();
     };
+    buf.resize(buf.size() + sizeof(std::size_t));
     std::memcpy(&buf[i], &destructor, sizeof(std::size_t));
 
     // component size
     i = buf.size();
+    const auto component_size = sizeof(T);
     buf.resize(buf.size() + sizeof(std::size_t));
-    new (&buf[i]) std::size_t{sizeof(T)};
+    std::memcpy(&buf[i], &component_size, sizeof(std::size_t));
 
     // component
     i = buf.size();
+    uint8_t temp_buf[sizeof(T)];
+    new (temp_buf) T{args...};
     buf.resize(buf.size() + sizeof(T));
-    new (&buf[i]) T{args...};
+    std::memcpy(&buf[i], temp_buf, sizeof(T));
   }
 
   template <typename T>
   auto remove_component(Entity entity) -> void {
     // command type
     auto i = buf.size();
+    const auto cmd = CommandType::RemoveComponent;
     buf.resize(buf.size() + sizeof(CommandType));
-    new (&buf[i]) CommandType{RemoveComponent};
+    std::memcpy(&buf[i], &cmd, sizeof(CommandType));
 
     // entity
     i = buf.size();
@@ -189,8 +195,9 @@ struct Command {
 
     // component id
     i = buf.size();
+    const auto component_id = typeid(T).hash_code();
     buf.resize(buf.size() + sizeof(std::size_t));
-    new (&buf[i]) std::size_t{typeid(T).hash_code()};
+    std::memcpy(&buf[i], &component_id, sizeof(std::size_t));
   }
 
   auto run() -> void;

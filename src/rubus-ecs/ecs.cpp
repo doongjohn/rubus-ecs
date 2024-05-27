@@ -71,8 +71,9 @@ Command::~Command() {
 auto Command::create_entity() -> PendingEntity {
   // command type
   auto i = buf.size();
+  const auto cmd = CommandType::CreateEntity;
   buf.resize(buf.size() + sizeof(CommandType));
-  new (&buf[i]) CommandType{CreateEntity};
+  std::memcpy(&buf[i], &cmd, sizeof(CommandType));
 
   return PendingEntity{arch_storage->create_entity()};
 }
@@ -80,8 +81,9 @@ auto Command::create_entity() -> PendingEntity {
 auto Command::delete_entity(ReadOnlyEntity entity) -> void {
   // command type
   auto i = buf.size();
+  const auto cmd = CommandType::DeleteEntity;
   buf.resize(buf.size() + sizeof(CommandType));
-  new (&buf[i]) CommandType{DeleteEntity};
+  std::memcpy(&buf[i], &cmd, sizeof(CommandType));
 
   // entity
   i = buf.size();
@@ -92,8 +94,9 @@ auto Command::delete_entity(ReadOnlyEntity entity) -> void {
 auto Command::delete_entity(PendingEntity entity) -> void {
   // command type
   auto i = buf.size();
+  const auto cmd = CommandType::DeleteEntity;
   buf.resize(buf.size() + sizeof(CommandType));
-  new (&buf[i]) CommandType{DeleteEntity};
+  std::memcpy(&buf[i], &cmd, sizeof(CommandType));
 
   // entity
   i = buf.size();
@@ -102,27 +105,40 @@ auto Command::delete_entity(PendingEntity entity) -> void {
 }
 
 auto Command::run() -> void {
+  CommandType cmd;
   for (auto i = std::size_t{}; i < buf.size();) {
-    const auto cmd = *reinterpret_cast<CommandType *>(&buf[i]);
+    std::memcpy(&cmd, &buf[i], sizeof(CommandType));
     i += sizeof(CommandType);
 
     switch (cmd) {
     case CommandType::CreateEntity:
       break;
     case CommandType::DeleteEntity: {
-      arch_storage->delete_entity(*reinterpret_cast<Entity *>(&buf[i]));
+      Entity entity;
+      std::memcpy(&entity, &buf[i], sizeof(Entity));
       i += sizeof(Entity);
+
+      arch_storage->delete_entity(entity);
     } break;
     case CommandType::AddComponent: {
-      const auto entity = *reinterpret_cast<Entity *>(&buf[i]);
+      Entity entity;
+      std::memcpy(&entity, &buf[i], sizeof(Entity));
       i += sizeof(Entity);
-      const auto component_id = ComponentId{*reinterpret_cast<std::size_t *>(&buf[i])};
+
+      auto component_id = ComponentId{};
+      std::memcpy(&(component_id.value), &buf[i], sizeof(std::size_t));
       i += sizeof(std::size_t);
-      const auto destructor = reinterpret_cast<void (*)(void *)>(&buf[i]);
+
+      void (*destructor)(void *);
+      std::memcpy(&destructor, &buf[i], sizeof(std::size_t));
       i += sizeof(std::size_t);
-      const auto component_size = *reinterpret_cast<std::size_t *>(&buf[i]);
+
+      std::size_t component_size;
+      std::memcpy(&component_size, &buf[i], sizeof(std::size_t));
       i += sizeof(std::size_t);
+
       const auto component_ptr = &buf[i];
+      i += component_size;
 
       auto &entity_loc = arch_storage->entity_locations.at(entity);
       auto entity_arch = entity_loc.arch;
@@ -179,12 +195,14 @@ auto Command::run() -> void {
       } else {
         destructor(component_ptr);
       }
-      i += component_size;
     } break;
     case CommandType::RemoveComponent: {
-      const auto entity = *reinterpret_cast<Entity *>(&buf[i]);
+      Entity entity;
+      std::memcpy(&entity, &buf[i], sizeof(Entity));
       i += sizeof(Entity);
-      const auto component_id = ComponentId{*reinterpret_cast<std::size_t *>(&buf[i])};
+
+      auto component_id = ComponentId{};
+      std::memcpy(&(component_id.value), &buf[i], sizeof(std::size_t));
       i += sizeof(std::size_t);
 
       auto &entity_loc = arch_storage->entity_locations.at(entity);
@@ -243,35 +261,37 @@ auto Command::run() -> void {
 }
 
 auto Command::discard() -> void {
+  CommandType cmd;
   for (auto i = std::size_t{}; i < buf.size();) {
-    const auto cmd = *reinterpret_cast<CommandType *>(&buf[i]);
+    std::memcpy(&cmd, &buf[i], sizeof(CommandType));
     i += sizeof(CommandType);
 
     switch (cmd) {
     case CommandType::CreateEntity:
       break;
     case CommandType::DeleteEntity: {
-      i += sizeof(Entity);
+      i += sizeof(Entity); // entity
     } break;
     case CommandType::AddComponent: {
-      // const auto entity = *reinterpret_cast<Entity *>(&buf[i]);
-      i += sizeof(Entity);
-      // const auto component_id = ComponentId{*reinterpret_cast<std::size_t *>(&buf[i])};
+      i += sizeof(Entity);      // entity
+      i += sizeof(std::size_t); // ComponentId
+
+      void (*destructor)(void *);
+      std::memcpy(&destructor, &buf[i], sizeof(std::size_t));
       i += sizeof(std::size_t);
-      const auto destructor = reinterpret_cast<void (*)(void *)>(&buf[i]);
+
+      std::size_t component_size;
+      std::memcpy(&component_size, &buf[i], sizeof(std::size_t));
       i += sizeof(std::size_t);
-      const auto component_size = *reinterpret_cast<std::size_t *>(&buf[i]);
-      i += sizeof(std::size_t);
+
       const auto component_ptr = &buf[i];
       i += component_size;
 
       destructor(component_ptr);
     } break;
     case CommandType::RemoveComponent: {
-      // const auto entity = *reinterpret_cast<Entity *>(&buf[i]);
-      i += sizeof(Entity);
-      // const auto component_id = ComponentId{*reinterpret_cast<std::size_t *>(&buf[i])};
-      i += sizeof(std::size_t);
+      i += sizeof(Entity);      // entity
+      i += sizeof(std::size_t); // ComponentId
     } break;
     }
   }
@@ -476,7 +496,7 @@ auto Query::get_next_entity() -> std::tuple<Archetype *, ReadOnlyEntity> {
       it = std::next(it);
       index = 0;
     } else {
-      return {arch, {arch->entities[index++]}};
+      return {arch, ReadOnlyEntity{arch->entities[index++]}};
     }
   }
 
