@@ -54,10 +54,11 @@ auto main() -> int {
 
   for_each_entities(&arch_storage, &command, query_pos) {
     auto pos = entity.get_component<Position>();
+    std::cout << std::format("{},{}\n", pos->x, pos->y);
+
     if (pos->x != 3.f) {
       entity.remove_component<Position>();
     }
-    std::cout << std::format("{},{}\n", pos->x, pos->y);
 
     auto new_entity = command.create_entity();
     new_entity.add_component<Position>(10.f, 10.f);

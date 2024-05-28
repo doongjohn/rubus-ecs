@@ -1,5 +1,5 @@
 function(use_sanitizer target)
-  set(USE_SANITIZER false CACHE BOOL "Use Sanitizer")
+  set(USE_SANITIZER ON CACHE BOOL "Use Sanitizer")
   if (USE_SANITIZER)
     # clang
     if ((CMAKE_CXX_COMPILER_ID MATCHES "Clang"))

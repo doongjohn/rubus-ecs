@@ -2,4 +2,5 @@
 .cache/
 build/
 
-compile_commands.json
+.clangd
+CMakeUserPresets.json
