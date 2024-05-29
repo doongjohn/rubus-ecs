@@ -4,7 +4,6 @@
 #include <cassert>
 #include <typeinfo>
 #include <functional>
-#include <tuple>
 #include <span>
 #include <vector>
 #include <unordered_map>
@@ -480,13 +479,13 @@ struct Query {
     return *this;
   }
 
-  auto reset(ArchetypeStorage *arch_storage) -> void;
-  [[nodiscard]] auto get_next_entity(Command *command) -> std::tuple<Archetype *, ReadOnlyEntity>;
+  auto start(ArchetypeStorage *arch_storage) -> void;
+  [[nodiscard]] auto get_next_entity(Command *command) -> ReadOnlyEntity;
 };
 
 #define for_each_entities(arch_storage, command, query) \
-  (query).reset(arch_storage); \
-  for (auto [arch, entity] = (query).get_next_entity(command); arch != nullptr; \
-       std::tie(arch, entity) = (query).get_next_entity(command))
+  (query).start(arch_storage); \
+  for (auto entity = (query).get_next_entity(command); entity.arch != nullptr; \
+       entity = (query).get_next_entity(command))
 
 } // namespace ruecs

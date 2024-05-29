@@ -481,45 +481,52 @@ auto ArchetypeStorage::delete_entity(Entity entity) -> void {
   entity_locations.erase(entity);
 }
 
-auto Query::reset(ArchetypeStorage *arch_storage) -> void {
-  // TODO: optimize
+auto Query::start(ArchetypeStorage *arch_storage) -> void {
+  archs.clear();
+  auto &component_locations = arch_storage->component_locations;
+
+  // includes
   if (includes.empty()) {
-    archs = {};
+    for (const auto &[_, component_map] : component_locations) {
+      for (const auto arch : component_map) {
+        archs.insert(arch);
+      }
+    }
   } else {
-    auto &component_locations = arch_storage->component_locations;
-    for (auto i = std::size_t{0}; i < includes.size(); ++i) {
-      if (not component_locations.contains(includes[i])) {
-        archs = {};
+    archs = component_locations.at(includes[0]);
+    for (const auto include : includes) {
+      if (not component_locations.contains(include)) {
+        archs.clear();
         break;
       }
-      if (i == 0) {
-        archs = component_locations.at(includes[0]);
-      } else {
-        unorderd_map_intersection(archs, component_locations.at(includes[i]));
-      }
-    }
-    for (auto i = std::size_t{0}; i < excludes.size(); ++i) {
-      if (component_locations.contains(excludes[i])) {
-        unorderd_map_exclude(archs, component_locations.at(excludes[i]));
-      }
+      unorderd_map_intersection(archs, component_locations.at(include));
     }
   }
+
+  // excludes
+  for (const auto exclude : excludes) {
+    if (component_locations.contains(exclude)) {
+      unorderd_map_exclude(archs, component_locations.at(exclude));
+    }
+  }
+
   it = archs.begin();
+  index = 0;
 }
 
-auto Query::get_next_entity(Command *command) -> std::tuple<Archetype *, ReadOnlyEntity> {
+auto Query::get_next_entity(Command *command) -> ReadOnlyEntity {
   while (it != archs.end()) {
     auto arch = (*it).first;
     if (index == arch->entities.size()) {
-      it = std::next(it);
+      ++it;
       index = 0;
     } else {
-      return {arch, {command, arch, {index}, arch->entities[index++]}};
+      return {command, arch, {index}, arch->entities[index++]};
     }
   }
 
   index = 0;
-  return {nullptr, {}};
+  return {};
 }
 
 } // namespace ruecs
