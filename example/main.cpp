@@ -45,9 +45,9 @@ auto main() -> int {
   }
 
   std::cout << "creating queries\n";
-  auto query_pos = ruecs::Query{}.with<Position>();
-  auto query_movable = ruecs::Query{}.with<Position, Velocity>();
-  auto query_player = ruecs::Query{}.with<Player>();
+  auto query_pos = ruecs::Query{&arch_storage}.with<Position>();
+  auto query_movable = ruecs::Query{&arch_storage}.with<Position, Velocity>();
+  auto query_player = ruecs::Query{&arch_storage}.with<Player>();
 
   std::cout << "running systems\n";
   auto start = std::chrono::high_resolution_clock::now();

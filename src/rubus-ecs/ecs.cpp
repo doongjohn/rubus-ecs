@@ -1,5 +1,7 @@
 #include "ecs.hpp"
 
+#include <ranges>
+
 namespace ruecs {
 
 ComponentArray::ComponentArray(ComponentId id, std::size_t each_size, void (*fn_destructor)(void *))
@@ -481,7 +483,10 @@ auto ArchetypeStorage::delete_entity(Entity entity) -> void {
   entity_locations.erase(entity);
 }
 
-auto Query::start(ArchetypeStorage *arch_storage) -> void {
+Query::Query(ArchetypeStorage *arch_storage) : arch_storage{arch_storage} {}
+
+auto Query::update_archs() -> void {
+  arch_count = arch_storage->archetypes.size();
   archs.clear();
   auto &component_locations = arch_storage->component_locations;
 
@@ -494,31 +499,44 @@ auto Query::start(ArchetypeStorage *arch_storage) -> void {
     }
   } else {
     archs = component_locations.at(includes[0]);
-    for (const auto include : includes) {
-      if (not component_locations.contains(include)) {
+    for (const auto include : std::views::drop(includes, 1)) {
+      auto it = component_locations.find(include);
+      if (it == component_locations.end()) {
         archs.clear();
         break;
       }
       unorderd_map_intersection(archs, component_locations.at(include));
+      if (archs.empty()) {
+        break;
+      }
     }
   }
 
   // excludes
   for (const auto exclude : excludes) {
-    if (component_locations.contains(exclude)) {
-      unorderd_map_exclude(archs, component_locations.at(exclude));
+    auto it = component_locations.find(exclude);
+    if (it != component_locations.end()) {
+      unorderd_map_exclude(archs, it->second);
+      if (archs.empty()) {
+        break;
+      }
     }
   }
+}
 
-  it = archs.begin();
+auto Query::start() -> void {
+  if (arch_count != arch_storage->archetypes.size()) {
+    update_archs();
+  }
+  archs_it = archs.begin();
   index = 0;
 }
 
 auto Query::get_next_entity(Command *command) -> ReadOnlyEntity {
-  while (it != archs.end()) {
-    auto arch = (*it).first;
+  while (archs_it != archs.end()) {
+    auto arch = (*archs_it).first;
     if (index == arch->entities.size()) {
-      ++it;
+      ++archs_it;
       index = 0;
     } else {
       return {command, arch, {index}, arch->entities[index++]};

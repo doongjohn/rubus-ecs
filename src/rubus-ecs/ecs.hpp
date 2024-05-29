@@ -439,12 +439,15 @@ struct PendingEntity {
 };
 
 struct Query {
+  ArchetypeStorage *arch_storage = nullptr;
+  std::size_t arch_count = 0;
   std::vector<ComponentId> includes;
   std::vector<ComponentId> excludes;
-
   ComponentMap archs;
-  ComponentMap::iterator it;
+  ComponentMap::iterator archs_it;
   std::size_t index = 0;
+
+  Query(ArchetypeStorage *arch_storage);
 
   template <typename Map, typename Key = typename Map::key_type>
   static inline auto unorderd_map_intersection(Map &s, const Map &other) -> void {
@@ -479,12 +482,13 @@ struct Query {
     return *this;
   }
 
-  auto start(ArchetypeStorage *arch_storage) -> void;
+  auto update_archs() -> void;
+  auto start() -> void;
   [[nodiscard]] auto get_next_entity(Command *command) -> ReadOnlyEntity;
 };
 
 #define for_each_entities(arch_storage, command, query) \
-  (query).start(arch_storage); \
+  (query).start(); \
   for (auto entity = (query).get_next_entity(command); entity.arch != nullptr; \
        entity = (query).get_next_entity(command))
 
