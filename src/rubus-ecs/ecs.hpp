@@ -222,6 +222,9 @@ struct Archetype {
   [[nodiscard]] auto has_components(std::span<ComponentId> ids) -> bool;
   [[nodiscard]] auto not_has_components(std::span<ComponentId> ids) -> bool;
 
+  template <typename T>
+  [[nodiscard]] auto get_component(EntityIndex index) -> T *;
+
   auto add_entity(Entity entity) -> EntityIndex;
   auto take_out_entity(EntityIndex index) -> void;
   auto delete_entity(EntityIndex index) -> void;
@@ -392,14 +395,22 @@ auto Entity::remove_component() -> void {
   arch_storage->remove_component<T>(*this);
 }
 
+template <typename T>
+[[nodiscard]] auto Archetype::get_component(EntityIndex index) -> T * {
+  auto component_loc = arch_storage->component_locations.at({typeid(T).hash_code()});
+  auto &component_array = components[component_loc.at(this)];
+  return reinterpret_cast<T *>(&component_array.array[index.i * component_array.each_size]);
+}
+
 struct ReadOnlyEntity {
   Command *command = nullptr;
+  Archetype *arch = nullptr;
+  EntityIndex index;
   Entity entity;
 
   template <typename T>
   [[nodiscard]] auto get_component() -> T * {
-    // TODO: optimze
-    return entity.get_component<T>();
+    return arch->get_component<T>(index);
   }
 
   template <typename T, typename... Args>

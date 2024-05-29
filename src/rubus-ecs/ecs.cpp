@@ -454,9 +454,9 @@ auto ArchetypeStorage::get_archetype_id(std::span<ComponentInfo> infos) -> Arche
   auto hash = infos.size();
   for (const auto &info : infos) {
     auto x = info.id.value;
-    x = ((x >> 32) ^ x) * 0x45d9f3b;
-    x = ((x >> 32) ^ x) * 0x45d9f3b;
-    x = (x >> 32) ^ x;
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = ((x >> 16) ^ x) * 0x45d9f3b;
+    x = (x >> 16) ^ x;
     hash ^= x + 0x9e3779b9 + (hash << 6) + (hash >> 2);
   }
   return {hash};
@@ -514,7 +514,7 @@ auto Query::get_next_entity(Command *command) -> std::tuple<Archetype *, ReadOnl
       it = std::next(it);
       index = 0;
     } else {
-      return {arch, {command, arch->entities[index++]}};
+      return {arch, {command, arch, {index}, arch->entities[index++]}};
     }
   }
 
