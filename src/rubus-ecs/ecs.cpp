@@ -498,16 +498,19 @@ auto Query::update_archs() -> void {
       }
     }
   } else {
-    archs = component_locations.at(includes[0]);
-    for (const auto include : std::views::drop(includes, 1)) {
-      auto it = component_locations.find(include);
-      if (it == component_locations.end()) {
-        archs.clear();
-        break;
-      }
-      unorderd_map_intersection(archs, component_locations.at(include));
-      if (archs.empty()) {
-        break;
+    auto it = component_locations.find(includes[0]);
+    if (it != component_locations.end() && not it->second.empty()) {
+      archs = it->second;
+      for (const auto include : std::views::drop(includes, 1)) {
+        auto it = component_locations.find(include);
+        if (it == component_locations.end()) {
+          archs.clear();
+          break;
+        }
+        unorderd_map_intersection(archs, component_locations.at(include));
+        if (archs.empty()) {
+          break;
+        }
       }
     }
   }
