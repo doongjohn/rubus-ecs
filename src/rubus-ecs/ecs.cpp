@@ -75,54 +75,27 @@ Command::~Command() {
 }
 
 auto Command::create_entity() -> PendingEntity {
-  // command type
-  auto i = buf.size();
-  const auto cmd = CommandType::CreateEntity;
-  buf.resize(buf.size() + sizeof(CommandType));
-  std::memcpy(&buf[i], &cmd, sizeof(CommandType));
-
+  aligned_buf.emplace_back<CommandType>(CommandType::CreateEntity);
   return PendingEntity{this, arch_storage->create_entity()};
 }
 
 auto Command::delete_entity(ReadOnlyEntity entity) -> void {
-  // command type
-  auto i = buf.size();
-  const auto cmd = CommandType::DeleteEntity;
-  buf.resize(buf.size() + sizeof(CommandType));
-  std::memcpy(&buf[i], &cmd, sizeof(CommandType));
-
-  // entity
-  i = buf.size();
-  buf.resize(buf.size() + sizeof(Entity));
-  std::memcpy(&buf[i], &(entity.entity), sizeof(Entity));
+  aligned_buf.emplace_back<CommandType>(CommandType::DeleteEntity);
+  aligned_buf.emplace_back<Entity>(entity.entity);
 }
 
 auto Command::delete_entity(PendingEntity entity) -> void {
-  // command type
-  auto i = buf.size();
-  const auto cmd = CommandType::DeleteEntity;
-  buf.resize(buf.size() + sizeof(CommandType));
-  std::memcpy(&buf[i], &cmd, sizeof(CommandType));
-
-  // entity
-  i = buf.size();
-  buf.resize(buf.size() + sizeof(Entity));
-  std::memcpy(&buf[i], &(entity.entity), sizeof(Entity));
+  aligned_buf.emplace_back<CommandType>(CommandType::DeleteEntity);
+  aligned_buf.emplace_back<Entity>(entity.entity);
 }
 
 auto Command::run() -> void {
-  CommandType cmd;
-  for (auto i = std::size_t{}; i < buf.size();) {
-    std::memcpy(&cmd, &buf[i], sizeof(CommandType));
-    i += sizeof(CommandType);
-
-    switch (cmd) {
+  for (auto i = std::size_t{}; i < aligned_buf.size();) {
+    switch (aligned_buf.get<CommandType>(i)) {
     case CommandType::CreateEntity:
       break;
     case CommandType::DeleteEntity: {
-      Entity entity;
-      std::memcpy(&entity, &buf[i], sizeof(Entity));
-      i += sizeof(Entity);
+      auto &entity = aligned_buf.get<Entity>(i);
 
       // NOTE: There can be multiple delete commands for the same entity.
       if (arch_storage->entity_locations.contains(entity)) {
@@ -130,24 +103,13 @@ auto Command::run() -> void {
       }
     } break;
     case CommandType::AddComponent: {
-      Entity entity;
-      std::memcpy(&entity, &buf[i], sizeof(Entity));
-      i += sizeof(Entity);
-
-      auto component_id = ComponentId{};
-      std::memcpy(&(component_id.value), &buf[i], sizeof(std::size_t));
-      i += sizeof(std::size_t);
-
-      void (*fn_destructor)(void *);
-      std::memcpy(&fn_destructor, &buf[i], sizeof(std::size_t));
-      i += sizeof(std::size_t);
-
-      std::size_t component_size;
-      std::memcpy(&component_size, &buf[i], sizeof(std::size_t));
-      i += sizeof(std::size_t);
-
-      const auto component_ptr = &buf[i];
-      i += component_size;
+      auto &entity = aligned_buf.get<Entity>(i);
+      auto component_id = ComponentId{aligned_buf.get<std::size_t>(i)};
+      auto fn_destructor = aligned_buf.get<void (*)(void *)>(i);
+      auto component_size = aligned_buf.get<std::size_t>(i);
+      auto component_index = aligned_buf.get<std::size_t>(i);
+      auto component_ptr = aligned_buf.get_ptr_at(component_index);
+      i = component_index + component_size;
 
       // entity must exist
       assert(arch_storage->entity_locations.contains(entity));
@@ -208,13 +170,8 @@ auto Command::run() -> void {
       }
     } break;
     case CommandType::RemoveComponent: {
-      Entity entity;
-      std::memcpy(&entity, &buf[i], sizeof(Entity));
-      i += sizeof(Entity);
-
-      auto component_id = ComponentId{};
-      std::memcpy(&(component_id.value), &buf[i], sizeof(std::size_t));
-      i += sizeof(std::size_t);
+      auto &entity = aligned_buf.get<Entity>(i);
+      auto component_id = ComponentId{aligned_buf.get<std::size_t>(i)};
 
       // entity must exist
       assert(arch_storage->entity_locations.contains(entity));
@@ -270,45 +227,34 @@ auto Command::run() -> void {
     } break;
     }
   }
-  buf.clear();
+  aligned_buf.clear();
 }
 
 auto Command::discard() -> void {
-  CommandType cmd;
-  for (auto i = std::size_t{}; i < buf.size();) {
-    std::memcpy(&cmd, &buf[i], sizeof(CommandType));
-    i += sizeof(CommandType);
-
-    switch (cmd) {
+  for (auto i = std::size_t{}; i < aligned_buf.size();) {
+    switch (aligned_buf.get<CommandType>(i)) {
     case CommandType::CreateEntity:
       break;
     case CommandType::DeleteEntity: {
-      i += sizeof(Entity); // entity
+      aligned_buf.get<Entity>(i);
     } break;
     case CommandType::AddComponent: {
-      i += sizeof(Entity);      // entity
-      i += sizeof(std::size_t); // ComponentId
-
-      void (*fn_destructor)(void *);
-      std::memcpy(&fn_destructor, &buf[i], sizeof(std::size_t));
-      i += sizeof(std::size_t);
-
-      std::size_t component_size;
-      std::memcpy(&component_size, &buf[i], sizeof(std::size_t));
-      i += sizeof(std::size_t);
-
-      const auto component_ptr = &buf[i];
-      i += component_size;
-
+      aligned_buf.get<Entity>(i);      // entity
+      aligned_buf.get<std::size_t>(i); // ComponentId
+      auto fn_destructor = aligned_buf.get<void (*)(void *)>(i);
+      auto component_size = aligned_buf.get<std::size_t>(i);
+      auto component_index = aligned_buf.get<std::size_t>(i);
+      auto component_ptr = aligned_buf.get_ptr_at(component_index);
+      i = component_index + component_size;
       fn_destructor(component_ptr);
     } break;
     case CommandType::RemoveComponent: {
-      i += sizeof(Entity);      // entity
-      i += sizeof(std::size_t); // ComponentId
+      aligned_buf.get<Entity>(i);      // entity
+      aligned_buf.get<std::size_t>(i); // ComponentId
     } break;
     }
   }
-  buf.clear();
+  aligned_buf.clear();
 }
 
 Archetype::Archetype(ArchetypeId id, ArchetypeStorage *arch_storage) : id{id}, arch_storage{arch_storage} {}

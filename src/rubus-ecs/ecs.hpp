@@ -128,9 +128,59 @@ enum CommandType : std::size_t {
 struct ReadOnlyEntity;
 struct PendingEntity;
 
+struct AlignedByteBuffer {
+  std::vector<uint8_t> buf;
+
+  [[nodiscard]] inline auto size() const noexcept -> std::size_t {
+    return buf.size();
+  }
+
+  inline auto clear() noexcept -> void {
+    buf.clear();
+  }
+
+  template <typename T>
+  auto get_aligned_index_at(std::size_t index) -> std::size_t {
+    auto space = ~std::size_t{};
+    auto ptr = static_cast<void *>(buf.data() + index);
+    std::align(alignof(T), sizeof(T), ptr, space);
+    return static_cast<uint8_t *>(ptr) - buf.data();
+  }
+
+  auto get_ptr_at(std::size_t index) -> void * {
+    return &buf[index];
+  }
+
+  template <typename T, typename... Args>
+  auto emplace_back(Args &&...args) -> void {
+    // get aligned index
+    auto index = get_aligned_index_at<T>(buf.size());
+
+    // resize buffer
+    buf.resize(index + sizeof(T));
+
+    // emplace T
+    std::construct_at(reinterpret_cast<T *>(&buf[index]), args...);
+  }
+
+  template <typename T>
+  auto get(std::size_t &index) -> T & {
+    // get aligned ptr and padding
+    auto space = ~std::size_t{};
+    auto ptr = static_cast<void *>(&buf[index]);
+    std::align(alignof(T), sizeof(T), ptr, space);
+    auto padding = ~std::size_t{} - space;
+
+    // advance index
+    index += padding + sizeof(T);
+
+    return *reinterpret_cast<T *>(ptr);
+  }
+};
+
 struct Command {
   ArchetypeStorage *arch_storage = nullptr;
-  std::vector<uint8_t> buf;
+  AlignedByteBuffer aligned_buf;
 
   Command(ArchetypeStorage *arch_storage);
   ~Command();
@@ -141,63 +191,31 @@ struct Command {
 
   template <typename T, typename... Args>
   auto add_component(Entity entity, Args &&...args) -> void {
-    // command type
-    auto i = buf.size();
-    const auto cmd = CommandType::AddComponent;
-    buf.resize(buf.size() + sizeof(CommandType));
-    std::memcpy(&buf[i], &cmd, sizeof(CommandType));
-
-    // entity
-    i = buf.size();
-    buf.resize(buf.size() + sizeof(Entity));
-    std::memcpy(&buf[i], &entity, sizeof(Entity));
-
-    // component id
-    i = buf.size();
-    const auto component_id = typeid(T).hash_code();
-    buf.resize(buf.size() + sizeof(std::size_t));
-    std::memcpy(&buf[i], &component_id, sizeof(std::size_t));
+    aligned_buf.emplace_back<CommandType>(CommandType::AddComponent);
+    aligned_buf.emplace_back<Entity>(entity);
+    aligned_buf.emplace_back<std::size_t>(typeid(T).hash_code());
 
     // destructor
-    i = buf.size();
-    void (*fn_destructor)(void *) = [](void *component) {
-      static_cast<T *>(component)->~T();
-    };
-    buf.resize(buf.size() + sizeof(std::size_t));
-    std::memcpy(&buf[i], &fn_destructor, sizeof(std::size_t));
+    aligned_buf.emplace_back<void (*)(void *)>([](void *component) {
+      std::destroy_at(static_cast<T *>(component));
+    });
 
     // component size
-    i = buf.size();
-    const auto component_size = sizeof(T);
-    buf.resize(buf.size() + sizeof(std::size_t));
-    std::memcpy(&buf[i], &component_size, sizeof(std::size_t));
+    aligned_buf.emplace_back<std::size_t>(sizeof(T));
 
-    // component
-    i = buf.size();
-    uint8_t temp_buf[sizeof(T)];
-    new (temp_buf) T{args...};
-    buf.resize(buf.size() + sizeof(T));
-    std::memcpy(&buf[i], temp_buf, sizeof(T));
+    // component data index
+    aligned_buf.emplace_back<std::size_t>(aligned_buf.get_aligned_index_at<T>(
+      aligned_buf.get_aligned_index_at<std::size_t>(aligned_buf.size()) + sizeof(std::size_t)));
+
+    // component data
+    aligned_buf.emplace_back<T>(args...);
   }
 
   template <typename T>
   auto remove_component(Entity entity) -> void {
-    // command type
-    auto i = buf.size();
-    const auto cmd = CommandType::RemoveComponent;
-    buf.resize(buf.size() + sizeof(CommandType));
-    std::memcpy(&buf[i], &cmd, sizeof(CommandType));
-
-    // entity
-    i = buf.size();
-    buf.resize(buf.size() + sizeof(Entity));
-    std::memcpy(&buf[i], &entity, sizeof(Entity));
-
-    // component id
-    i = buf.size();
-    const auto component_id = typeid(T).hash_code();
-    buf.resize(buf.size() + sizeof(std::size_t));
-    std::memcpy(&buf[i], &component_id, sizeof(std::size_t));
+    aligned_buf.emplace_back<CommandType>(CommandType::RemoveComponent);
+    aligned_buf.emplace_back<Entity>(entity);
+    aligned_buf.emplace_back<std::size_t>(typeid(T).hash_code());
   }
 
   auto run() -> void;
@@ -279,7 +297,7 @@ struct ArchetypeStorage {
       if (i == insert_index) {
         x = 1;
         component_infos[i] = {component_id, sizeof(T), [](void *component) {
-                                static_cast<T *>(component)->~T();
+                                std::destroy_at(static_cast<T *>(component));
                               }};
       } else {
         component_infos[i] = entity_arch->components[i - x].to_component_info();
@@ -299,7 +317,7 @@ struct ArchetypeStorage {
       if (i == insert_index) {
         x = 1;
         // construct new component
-        new (ptr) T{args...};
+        std::construct_at(reinterpret_cast<T *>(ptr), args...);
         component_locations.at(component_id).try_emplace(new_arch, i);
       } else {
         // copy components
