@@ -50,7 +50,7 @@ auto main() -> int {
   auto query_player = ruecs::Query{&arch_storage}.with<Player>();
 
   std::cout << "running systems\n";
-  auto start = std::chrono::high_resolution_clock::now();
+  auto time_start = std::chrono::steady_clock::now();
 
   for_each_entities(&arch_storage, &command, query_pos) {
     auto pos = entity.get_component<Position>();
@@ -86,8 +86,8 @@ auto main() -> int {
     std::cout << std::format("{}\n", player->name);
   }
 
-  auto end = std::chrono::high_resolution_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+  auto time_end = std::chrono::steady_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start);
   std::cout << std::format("running systems took {}ms\n", duration.count());
 
   std::cout << "done\n";

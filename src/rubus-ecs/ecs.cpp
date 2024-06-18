@@ -76,7 +76,8 @@ Command::~Command() {
 
 auto Command::create_entity() -> PendingEntity {
   aligned_buf.emplace_back<CommandType>(CommandType::CreateEntity);
-  return PendingEntity{this, arch_storage->create_entity()};
+  auto entity = arch_storage->create_entity();
+  return PendingEntity{this, entity.id, entity};
 }
 
 auto Command::delete_entity(ReadOnlyEntity entity) -> void {
@@ -488,7 +489,8 @@ auto Query::get_next_entity(Command *command) -> ReadOnlyEntity {
       ++archs_it;
       index = 0;
     } else {
-      return {command, arch, {index}, arch->entities[index++]};
+      auto entity = arch->entities[index];
+      return {command, entity.id, arch, {index++}, entity};
     }
   }
 

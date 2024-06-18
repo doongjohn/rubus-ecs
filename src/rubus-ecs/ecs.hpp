@@ -420,6 +420,7 @@ template <typename T>
 
 struct ReadOnlyEntity {
   Command *command = nullptr;
+  EntityId id;
   Archetype *arch = nullptr;
   EntityIndex index;
   Entity entity;
@@ -442,6 +443,7 @@ struct ReadOnlyEntity {
 
 struct PendingEntity {
   Command *command = nullptr;
+  EntityId id;
   Entity entity;
 
   template <typename T, typename... Args>
