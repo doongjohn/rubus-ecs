@@ -224,7 +224,7 @@ struct Command {
 struct Archetype {
   ArchetypeId id;
   ArchetypeStorage *arch_storage = nullptr;
-  std::vector<ComponentId> component_ids; // sorted in ascending order
+  std::vector<ComponentId> component_ids; // <-- sorted in ascending order
   std::vector<Entity> entities;
   std::vector<ComponentArray> components;
 
@@ -268,7 +268,7 @@ struct ArchetypeStorage {
 
   auto delete_all_archetypes() -> void;
 
-  static auto get_archetype_id(std::span<ComponentInfo> s) -> ArchetypeId;
+  static auto calculate_archetype_id(std::span<ComponentInfo> s) -> ArchetypeId;
 
   [[nodiscard]] auto create_entity() -> Entity;
   auto delete_entity(Entity entity) -> void;
@@ -304,7 +304,7 @@ struct ArchetypeStorage {
     }
 
     // get new arch
-    const auto new_arch_id = get_archetype_id(component_infos);
+    const auto new_arch_id = calculate_archetype_id(component_infos);
     archetypes.try_emplace(new_arch_id, new_arch_id, this, component_infos);
     component_locations.try_emplace(component_id);
 
@@ -361,7 +361,7 @@ struct ArchetypeStorage {
     }
 
     // get new arch
-    const auto new_arch_id = get_archetype_id(component_infos);
+    const auto new_arch_id = calculate_archetype_id(component_infos);
     archetypes.try_emplace(new_arch_id, new_arch_id, this, component_infos);
 
     auto new_arch = &archetypes.at(new_arch_id);
@@ -420,10 +420,10 @@ template <typename T>
 
 struct ReadOnlyEntity {
   Command *command = nullptr;
-  EntityId id;
+  ArchetypeStorage *arch_storage = nullptr;
   Archetype *arch = nullptr;
   EntityIndex index;
-  Entity entity;
+  EntityId id;
 
   template <typename T>
   [[nodiscard]] auto get_component() -> T * {
@@ -432,28 +432,28 @@ struct ReadOnlyEntity {
 
   template <typename T, typename... Args>
   auto add_component(Args &&...args) -> void {
-    command->add_component<T>(entity, args...);
+    command->add_component<T>({id, arch_storage}, args...);
   }
 
   template <typename T>
   auto remove_component() -> void {
-    command->remove_component<T>(entity);
+    command->remove_component<T>({id, arch_storage});
   }
 };
 
 struct PendingEntity {
   Command *command = nullptr;
+  ArchetypeStorage *arch_storage = nullptr;
   EntityId id;
-  Entity entity;
 
   template <typename T, typename... Args>
   auto add_component(Args &&...args) -> void {
-    command->add_component<T>(entity, args...);
+    command->add_component<T>({id, arch_storage}, args...);
   }
 
   template <typename T>
   auto remove_component() -> void {
-    command->remove_component<T>(entity);
+    command->remove_component<T>({id, arch_storage});
   }
 };
 

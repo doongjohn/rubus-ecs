@@ -77,17 +77,17 @@ Command::~Command() {
 auto Command::create_entity() -> PendingEntity {
   aligned_buf.emplace_back<CommandType>(CommandType::CreateEntity);
   auto entity = arch_storage->create_entity();
-  return PendingEntity{this, entity.id, entity};
+  return PendingEntity{this, arch_storage, entity.id};
 }
 
 auto Command::delete_entity(ReadOnlyEntity entity) -> void {
   aligned_buf.emplace_back<CommandType>(CommandType::DeleteEntity);
-  aligned_buf.emplace_back<Entity>(entity.entity);
+  aligned_buf.emplace_back<Entity>(Entity{entity.id, entity.arch_storage});
 }
 
 auto Command::delete_entity(PendingEntity entity) -> void {
   aligned_buf.emplace_back<CommandType>(CommandType::DeleteEntity);
-  aligned_buf.emplace_back<Entity>(entity.entity);
+  aligned_buf.emplace_back<Entity>(Entity{entity.id, entity.arch_storage});
 }
 
 auto Command::run() -> void {
@@ -138,7 +138,7 @@ auto Command::run() -> void {
         }
 
         // get new arch
-        const auto new_arch_id = ArchetypeStorage::get_archetype_id(component_infos);
+        const auto new_arch_id = ArchetypeStorage::calculate_archetype_id(component_infos);
         arch_storage->archetypes.try_emplace(new_arch_id, new_arch_id, arch_storage, component_infos);
         arch_storage->component_locations.try_emplace(component_id);
 
@@ -198,7 +198,7 @@ auto Command::run() -> void {
         }
 
         // get new arch
-        const auto new_arch_id = arch_storage->get_archetype_id(component_infos);
+        const auto new_arch_id = arch_storage->calculate_archetype_id(component_infos);
         arch_storage->archetypes.try_emplace(new_arch_id, new_arch_id, arch_storage, component_infos);
 
         auto new_arch = &arch_storage->archetypes.at(new_arch_id);
@@ -397,7 +397,7 @@ auto ArchetypeStorage::delete_all_archetypes() -> void {
   }
 }
 
-auto ArchetypeStorage::get_archetype_id(std::span<ComponentInfo> infos) -> ArchetypeId {
+auto ArchetypeStorage::calculate_archetype_id(std::span<ComponentInfo> infos) -> ArchetypeId {
   // TODO: find a better way to hash multiple integers
   // https://stackoverflow.com/a/72073933
   auto hash = infos.size();
@@ -486,11 +486,11 @@ auto Query::get_next_entity(Command *command) -> ReadOnlyEntity {
   while (archs_it != archs.end()) {
     auto arch = (*archs_it).first;
     if (index == arch->entities.size()) {
-      ++archs_it;
+      archs_it = std::next(archs_it);
       index = 0;
     } else {
       auto entity = arch->entities[index];
-      return {command, entity.id, arch, {index++}, entity};
+      return {command, arch_storage, arch, {index++}, entity.id};
     }
   }
 
